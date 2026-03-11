@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Home Assistant</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1a1a2e;
+      color: #e8e8f0;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #16213e;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #2a2a4a;
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: #a78bfa;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    header h1::before { content: '✦'; font-size: 1rem; }
+
+    #reset-btn {
+      background: none;
+      border: 1px solid #3a3a5c;
+      color: #9090b0;
+      padding: 6px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+    #reset-btn:hover { border-color: #a78bfa; color: #a78bfa; }
+
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      scroll-behavior: smooth;
+    }
+
+    .message {
+      display: flex;
+      gap: 12px;
+      max-width: 780px;
+      width: 100%;
+      animation: fadeIn 0.2s ease;
+    }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+    .message.user { align-self: flex-end; flex-direction: row-reverse; }
+    .message.assistant { align-self: flex-start; }
+
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .message.user .avatar { background: #4c1d95; color: #ddd6fe; }
+    .message.assistant .avatar { background: #1e3a5f; color: #93c5fd; }
+
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 16px;
+      line-height: 1.6;
+      font-size: 1rem;
+      max-width: calc(100% - 48px);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .message.user .bubble {
+      background: #4c1d95;
+      color: #ede9fe;
+      border-bottom-right-radius: 4px;
+    }
+
+    .message.assistant .bubble {
+      background: #1e293b;
+      color: #e2e8f0;
+      border-bottom-left-radius: 4px;
+      border: 1px solid #2a3a50;
+    }
+
+    .bubble.streaming::after {
+      content: '▋';
+      animation: blink 0.8s step-end infinite;
+      margin-left: 2px;
+      opacity: 0.7;
+    }
+
+    @keyframes blink { 0%, 100% { opacity: 0.7; } 50% { opacity: 0; } }
+
+    .bubble p { margin-bottom: 0.6em; }
+    .bubble p:last-child { margin-bottom: 0; }
+    .bubble ol, .bubble ul { padding-left: 1.4em; margin: 0.4em 0; }
+    .bubble li { margin-bottom: 0.3em; }
+    .bubble strong { color: #c4b5fd; }
+    .bubble code {
+      background: #0f172a;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.9em;
+    }
+    .bubble a.fb-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #0d2a1a;
+      color: #6ee7b7;
+      border: 1px solid #1a4a30;
+      padding: 1px 8px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 0.9em;
+    }
+    .bubble a.fb-link:hover { background: #163d25; color: #a7f3d0; }
+    .bubble a {
+      color: #93c5fd;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .bubble a:hover { color: #bfdbfe; }
+
+    #welcome {
+      margin: auto;
+      text-align: center;
+      color: #6060a0;
+      padding: 40px 20px;
+    }
+    #welcome h2 { font-size: 1.5rem; color: #9090c0; margin-bottom: 8px; }
+    #welcome p { font-size: 1rem; line-height: 1.6; }
+
+    footer {
+      background: #16213e;
+      border-top: 1px solid #2a2a4a;
+      padding: 12px 16px;
+      flex-shrink: 0;
+    }
+
+    #input-row {
+      display: flex;
+      gap: 10px;
+      max-width: 780px;
+      margin: 0 auto;
+      align-items: flex-end;
+    }
+
+    #input {
+      flex: 1;
+      background: #0f172a;
+      border: 1px solid #2a3a50;
+      border-radius: 12px;
+      color: #e8e8f0;
+      font-size: 1rem;
+      padding: 10px 14px;
+      resize: none;
+      outline: none;
+      line-height: 1.5;
+      min-height: 44px;
+      max-height: 160px;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+    #input:focus { border-color: #a78bfa; }
+    #input::placeholder { color: #4a4a70; }
+
+    #send-btn {
+      background: #7c3aed;
+      border: none;
+      border-radius: 12px;
+      color: white;
+      width: 44px;
+      height: 44px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    #send-btn:hover:not(:disabled) { background: #6d28d9; }
+    #send-btn:disabled { background: #3a2a5a; cursor: not-allowed; }
+
+    #send-btn svg { width: 20px; height: 20px; }
+
+    @media (max-width: 600px) {
+      .bubble { font-size: 0.95rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Home Assistant</h1>
+  <button id="reset-btn">New chat</button>
+</header>
+
+<div id="messages">
+  <div id="welcome">
+    <h2>How can I help?</h2>
+    <p>Ask me anything — finding movies, requesting content,<br>or any tech questions you have.</p>
+  </div>
+</div>
+
+<footer>
+  <div id="input-row">
+    <textarea id="input" rows="1" placeholder="Ask a question…"></textarea>
+    <button id="send-btn" title="Send">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="22" y1="2" x2="11" y2="13"></line>
+        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+      </svg>
+    </button>
+  </div>
+</footer>
+
+<script>
+  const messagesEl = document.getElementById('messages');
+  const welcomeEl  = document.getElementById('welcome');
+  const inputEl    = document.getElementById('input');
+  const sendBtn    = document.getElementById('send-btn');
+  const resetBtn   = document.getElementById('reset-btn');
+
+  let sessionId = localStorage.getItem('sessionId') || null;
+  let isStreaming = false;
+
+  // Auto-submit query from URL param (e.g. ?q=how+do+I+...)
+  window.addEventListener('DOMContentLoaded', () => {
+    const q = new URLSearchParams(window.location.search).get('q');
+    if (q?.trim()) {
+      inputEl.value = q.trim();
+      setTimeout(sendMessage, 200);
+      window.history.replaceState({}, '', '/');
+    }
+  });
+
+  // Auto-resize textarea
+  inputEl.addEventListener('input', () => {
+    inputEl.style.height = 'auto';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+  });
+
+  // Send on Enter (Shift+Enter for newline)
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!isStreaming) sendMessage();
+    }
+  });
+
+  sendBtn.addEventListener('click', () => { if (!isStreaming) sendMessage(); });
+
+  resetBtn.addEventListener('click', async () => {
+    if (sessionId) {
+      await fetch('/api/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId })
+      });
+      sessionId = null;
+      localStorage.removeItem('sessionId');
+    }
+    messagesEl.innerHTML = '';
+    messagesEl.appendChild(welcomeEl);
+    welcomeEl.style.display = '';
+  });
+
+  function addMessage(role, text) {
+    if (welcomeEl.parentNode) welcomeEl.remove();
+
+    const msg = document.createElement('div');
+    msg.className = `message ${role}`;
+
+    const avatar = document.createElement('div');
+    avatar.className = 'avatar';
+    avatar.textContent = role === 'user' ? '👤' : '✦';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    if (text) bubble.innerHTML = formatText(text);
+
+    msg.appendChild(avatar);
+    msg.appendChild(bubble);
+    messagesEl.appendChild(msg);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    return bubble;
+  }
+
+  function formatText(text) {
+    // Escape HTML first
+    let out = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    // Convert Linux-style server paths (/Media/... /USB/...) and any UNC/SMB variants
+    // to a clickable FileBrowser link.
+    // Matches:  /Media/Movies  \\mcrubes.local\Media\Movies  smb://mcrubes.local/Media/Movies
+    const pathToFb = (serverPath) => {
+      // Normalise to forward-slash path
+      const rel = serverPath
+        .replace(/^(smb:)?[\\\/]{0,2}mcrubes\.local[\\\/]?/i, '')
+        .replace(/\\/g, '/')
+        .replace(/^\//, '');
+      // FileBrowser root is /Media — strip the Media prefix for the URL
+      const fbPath = rel.replace(/^Media(\/|$)/, '$1').replace(/^\//, '');
+      const href = `http://mcrubes.local:8080/files/${fbPath}`.replace(/\/+$/, '');
+      const label = fbPath || 'Files';
+      return `<a href="${href}" target="_blank" rel="noopener" class="fb-link">📁 ${label}</a>`;
+    };
+
+    // UNC paths: \\mcrubes.local\... or \\\\mcrubes.local\\...
+    out = out.replace(/\\{1,2}mcrubes\.local\\[^\s<"')]+/gi, (m) => pathToFb(m));
+    // SMB URLs: smb://mcrubes.local/...
+    out = out.replace(/smb:\/\/mcrubes\.local\/[^\s<"')]+/gi, (m) => pathToFb(m));
+
+    // Strip stray ** before URLs
+    out = out.replace(/\*\*(https?:\/\/)/g, '$1');
+    out = out.replace(/\*\*(mcrubes\.local)/g, '$1');
+
+    // Linkify http/https URLs FIRST — before path conversion so we don't double-process
+    out = out.replace(/(https?:\/\/[^\s<"'*]+)/g, (url) => {
+      const clean = url.replace(/[.,;!?)]+$/, '');
+      const label = clean.replace(/^https?:\/\//, '');
+      return `<a href="${clean}" target="_blank" rel="noopener">${label}</a>`;
+    });
+
+    // Linkify bare mcrubes.local:PORT URLs
+    out = out.replace(/(?<!["/])(mcrubes\.local:\d+(?:\/[^\s<"'*,;!?)]*)?)/g, (url) => {
+      const clean = url.replace(/[.,;!?)]+$/, '');
+      return `<a href="http://${clean}" target="_blank" rel="noopener">${clean}</a>`;
+    });
+
+    // Bare Linux paths: /Media/... or /USB/...
+    // Negative lookbehind — skip if preceded by / " = ' (i.e. already inside a URL or HTML attribute)
+    out = out.replace(/(?<![/="'])(\/(Media|USB)(\/[^\s,<`"')\\*]*)?)/g, (m) => pathToFb(m));
+
+    // Markdown: bold, inline code, line breaks — strip any leftover stray **
+    out = out
+      .replace(/\*\*(.*?)\*\*/gs, '<strong>$1</strong>')
+      .replace(/\*\*/g, '')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\n/g, '<br>');
+
+    return out;
+  }
+
+  async function sendMessage() {
+    const text = inputEl.value.trim();
+    if (!text) return;
+
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+    isStreaming = true;
+    sendBtn.disabled = true;
+
+    addMessage('user', text);
+    const responseBubble = addMessage('assistant', '');
+    responseBubble.classList.add('streaming');
+
+    let buffer = '';
+    let statusText = '';
+
+    const renderBubble = () => {
+      responseBubble.innerHTML =
+        (buffer ? formatText(buffer) : '') +
+        (statusText ? `<em style="color:#7070a0;font-size:0.88em;display:block;margin-top:4px">${statusText}</em>` : '');
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    };
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, sessionId })
+      });
+
+      // Grab session ID from header before streaming
+      const newSid = res.headers.get('X-Session-Id');
+      if (newSid) {
+        sessionId = newSid;
+        localStorage.setItem('sessionId', sessionId);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let raw = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        raw += decoder.decode(value, { stream: true });
+
+        const lines = raw.split('\n');
+        raw = lines.pop();
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.text) {
+              buffer += data.text;
+              statusText = '';
+              renderBubble();
+            }
+            if (data.status) {
+              statusText = data.status;
+              renderBubble();
+            }
+            if (data.error) {
+              responseBubble.innerHTML = `<em style="color:#f87171">${data.error}</em>`;
+            }
+          } catch {}
+        }
+      }
+    } catch (err) {
+      responseBubble.innerHTML = '<em style="color:#f87171">Connection error. Please try again.</em>';
+    }
+
+    responseBubble.classList.remove('streaming');
+    isStreaming = false;
+    sendBtn.disabled = false;
+    inputEl.focus();
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+</script>
+
+</body>
+</html>

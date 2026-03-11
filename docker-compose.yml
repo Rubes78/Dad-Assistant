@@ -1,0 +1,15 @@
+services:
+  dad-assistant:
+    build: .
+    container_name: dad-assistant
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3456}:3000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_MODEL=${CLAUDE_MODEL:-claude-sonnet-4-6}
+    volumes:
+      - ./CLAUDE.md:/app/CLAUDE.md:ro       # customize this to describe your server
+      - ./ssh_key:/app/ssh_key:ro            # optional: remove if you don't want host shell access
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # lets container reach the host without hardcoding IP
