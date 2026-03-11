@@ -1,69 +1,33 @@
-const express = require('express');
+const express  = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
-const { exec } = require('child_process');
-const { promisify } = require('util');
+const fs        = require('fs');
+const path      = require('path');
+const crypto    = require('crypto');
 
-const execAsync = promisify(exec);
+const { TOOL_DEFINITIONS, executeTool } = require('./tools');
+
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001';
-const MAX_HISTORY = 40;
+const MODEL  = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
+
+const MAX_HISTORY    = 40;
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 
-// ── Bash tool ──────────────────────────────────────────────────────────────────
-const SSH_KEY_PATH = '/app/ssh_key';
-const sshAvailable = fs.existsSync(SSH_KEY_PATH);
-
-const TOOLS = [
-  {
-    name: 'bash',
-    description: sshAvailable
-      ? `Execute a shell command. curl and jq are available for API queries. To run commands on the host itself (docker ps, df, systemctl, files, etc.) use SSH:
-  ssh -i /app/ssh_key -o StrictHostKeyChecking=no root@host.docker.internal "your command here"
-For API queries you can use curl directly without SSH since you are already on the host network.`
-      : `Execute a shell command. curl and jq are available for API queries against local network services. No SSH key is configured so host shell access is not available.`,
-    input_schema: {
-      type: 'object',
-      properties: {
-        command: { type: 'string', description: 'Shell command to run.' },
-      },
-      required: ['command'],
-    },
-  },
-];
-
-async function runBash(command) {
-  try {
-    const { stdout, stderr } = await execAsync(command, {
-      timeout: 30000,
-      maxBuffer: 512 * 1024,
-    });
-    return { stdout: stdout.trim(), stderr: stderr.trim() || undefined };
-  } catch (err) {
-    return {
-      error: err.message,
-      stdout: err.stdout?.trim() || undefined,
-      stderr: err.stderr?.trim() || undefined,
-    };
-  }
-}
-
-// ── Session management ─────────────────────────────────────────────────────────
+// ── System prompt ──────────────────────────────────────────────────────────────
 function loadSystemPrompt() {
   try { return fs.readFileSync(path.join(__dirname, 'CLAUDE.md'), 'utf8'); }
   catch { return 'You are a helpful assistant.'; }
 }
 
+// ── Session management ─────────────────────────────────────────────────────────
 const sessions = new Map();
+
 const SEED_MESSAGES = [
   { role: 'user',      content: 'What can you do?' },
-  { role: 'assistant', content: "I have the full McRubes server reference loaded and I can run shell commands — so I can query any API, check what's downloading, see what Maintainerr is set to delete, check disk space, run docker commands on the host, and more. Just ask and I'll look it up." },
+  { role: 'assistant', content: "I have the full server reference loaded and live access via tools — I can check what's downloading, query any service API, run host commands, check disk space, and more. Just ask." },
 ];
 
 function getOrCreateSession(id) {
@@ -78,23 +42,24 @@ setInterval(() => {
   for (const [id, s] of sessions) if (s.lastActive < cutoff) sessions.delete(id);
 }, 30 * 60 * 1000);
 
+// ── Meta-question short-circuit ────────────────────────────────────────────────
 const META_PATTERNS = [
   /review.*server/i, /create.*claude\.?md/i, /make.*claude\.?md/i,
-  /commit.*memory/i, /can you access/i, /can you browse/i,
-  /what can you (do|see|access)/i, /don.t you have access/i,
+  /commit.*memory/i, /can you access/i,      /can you browse/i,
+  /what can you (do|see|access)/i,           /don.t you have access/i,
 ];
 
-const META_RESPONSE = `I have the McRubes reference loaded and live shell access to the server. I can:
+const META_RESPONSE = `I have the full server reference loaded and live tool access. I can:
 
-- **Check what's downloading** right now
-- **See what Maintainerr has queued for deletion**
-- **Check disk space**
-- **Look up recent additions in Plex**
-- **Check pending Overseerr requests**
-- **Run docker commands** on the host
-- **Answer any question** about how to use the server
+- **Check what's downloading** — query Radarr/Sonarr queues right now
+- **See what's queued for deletion** — query Maintainerr collections
+- **Check disk space** — run a live disk check
+- **See recent Plex additions** — query the Plex library
+- **Check pending requests** — query Overseerr
+- **Run host commands** — docker ps, logs, system stats
+- **Answer any how-to** — full service docs are loaded
 
-What do you want to know?`;
+What do you need?`;
 
 // ── Routes ─────────────────────────────────────────────────────────────────────
 app.post('/api/chat', async (req, res) => {
@@ -113,7 +78,7 @@ app.post('/api/chat', async (req, res) => {
     return;
   }
 
-  const sid = sessionId || crypto.randomUUID();
+  const sid     = sessionId || crypto.randomUUID();
   const session = getOrCreateSession(sid);
   session.messages.push({ role: 'user', content: message.trim() });
   while (session.messages.length > MAX_HISTORY) session.messages.shift();
@@ -126,19 +91,18 @@ app.post('/api/chat', async (req, res) => {
   const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
   let workingMessages = [...session.messages];
-  let fullResponse = '';
+  let fullResponse    = '';
 
   try {
     for (let round = 0; round < 10; round++) {
       const response = await client.messages.create({
-        model: MODEL,
+        model:      MODEL,
         max_tokens: 2048,
-        system: loadSystemPrompt(),
-        messages: workingMessages,
-        tools: TOOLS,
+        system:     loadSystemPrompt(),
+        messages:   workingMessages,
+        tools:      TOOL_DEFINITIONS,
       });
 
-      // Stream any text in this response
       const textContent = response.content
         .filter(b => b.type === 'text')
         .map(b => b.text)
@@ -150,24 +114,19 @@ app.post('/api/chat', async (req, res) => {
 
       if (response.stop_reason !== 'tool_use') break;
 
-      // Execute bash tool calls
       workingMessages.push({ role: 'assistant', content: response.content });
       const toolResults = [];
 
       for (const block of response.content.filter(b => b.type === 'tool_use')) {
-        const cmd = block.input.command || '';
-        const label = cmd.length > 60 ? cmd.slice(0, 57) + '…' : cmd;
-        send({ status: `$ ${label}` });
+        // Show a status line — for api tool include service name; for bash show the command
+        const label = block.name === 'api'
+          ? `${block.input.service}${block.input.endpoint}`
+          : block.input.command?.slice(0, 60) + (block.input.command?.length > 60 ? '…' : '');
+        send({ status: `${block.name === 'api' ? '⚡' : '$'} ${label}` });
 
-        const result = await runBash(cmd);
-        console.log(`CMD: ${cmd}`);
-        if (result.error) console.log(`ERR: ${result.error}`);
-
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: JSON.stringify(result),
-        });
+        console.log(`TOOL ${block.name}:`, JSON.stringify(block.input));
+        const result = await executeTool(block.name, block.input);
+        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) });
       }
 
       workingMessages.push({ role: 'user', content: toolResults });

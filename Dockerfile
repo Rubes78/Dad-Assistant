@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json .
 RUN npm install --omit=dev
 COPY server.js .
+COPY tools.js .
 COPY public/ public/
 COPY CLAUDE.md .
 EXPOSE 3000
