@@ -10,5 +10,6 @@ services:
     volumes:
       - ./CLAUDE.md:/app/CLAUDE.md:ro       # customize this to describe your server
       - ./ssh_key:/app/ssh_key:ro            # optional: remove if you don't want host shell access
+      - ./data:/app/data                     # session persistence
     extra_hosts:
       - "host.docker.internal:host-gateway"  # lets container reach the host without hardcoding IP

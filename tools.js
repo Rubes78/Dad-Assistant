@@ -8,8 +8,7 @@
 
 const { exec } = require('child_process');
 const { promisify } = require('util');
-const fs   = require('fs');
-const path = require('path');
+const fs = require('fs');
 
 const execAsync = promisify(exec);
 
@@ -19,20 +18,88 @@ const SSH_USER = process.env.SSH_USER     || 'root';
 const SSH_KEY  = process.env.SSH_KEY_PATH || '/app/ssh_key';
 const sshAvailable = fs.existsSync(SSH_KEY);
 
+// ── Bash blocklist — refuse commands that could cause irreversible damage ──────
+const BLOCKED_PATTERNS = [
+  /\brm\s+.*-[a-z]*r[a-z]*f\b/i,   // rm -rf variants
+  /\brm\s+.*-[a-z]*f[a-z]*r\b/i,
+  /\bmkfs\b/,                        // format a filesystem
+  /\bdd\s+.*of=\/dev\//,            // write directly to a block device
+  />\s*\/dev\/(sd|nvme|hd|vd)/,     // redirect to a disk device
+  /\b:\(\)\s*\{.*\}/,               // fork bomb
+  /\bshred\b/,                       // secure-delete
+  /\bwipefs\b/,                      // wipe filesystem signatures
+];
+
+function checkBashBlocklist(command) {
+  for (const pattern of BLOCKED_PATTERNS) {
+    if (pattern.test(command)) {
+      return `Blocked: command matches a destructive pattern (${pattern}). If you genuinely need this, text Daniel.`;
+    }
+  }
+  return null;
+}
+
 // ── Service registry (from env) ────────────────────────────────────────────────
-// auth: 'header' = X-Api-Key header, 'param' = query param key name, null = no auth
+// auth types: 'header' = X-Api-Key header | 'param' = query param | 'cookie' = session cookie | null = none
 const SERVICES = {
-  radarr:      { url: process.env.RADARR_URL,      key: process.env.RADARR_API_KEY,      auth: 'header',         authKey: 'X-Api-Key'       },
-  sonarr:      { url: process.env.SONARR_URL,      key: process.env.SONARR_API_KEY,      auth: 'header',         authKey: 'X-Api-Key'       },
-  plex:        { url: process.env.PLEX_URL,         key: process.env.PLEX_TOKEN,          auth: 'param',          authKey: 'X-Plex-Token'    },
-  overseerr:   { url: process.env.OVERSEERR_URL,   key: process.env.OVERSEERR_API_KEY,   auth: 'header',         authKey: 'X-Api-Key'       },
-  sabnzbd:     { url: process.env.SABNZBD_URL,     key: process.env.SABNZBD_API_KEY,     auth: 'param',          authKey: 'apikey'          },
-  maintainerr: { url: process.env.MAINTAINERR_URL, key: null,                            auth: null                                         },
+  radarr:       { url: process.env.RADARR_URL,      key: process.env.RADARR_API_KEY,      auth: 'header', authKey: 'X-Api-Key'    },
+  sonarr:       { url: process.env.SONARR_URL,      key: process.env.SONARR_API_KEY,      auth: 'header', authKey: 'X-Api-Key'    },
+  plex:         { url: process.env.PLEX_URL,         key: process.env.PLEX_TOKEN,          auth: 'param',  authKey: 'X-Plex-Token' },
+  overseerr:    { url: process.env.OVERSEERR_URL,   key: process.env.OVERSEERR_API_KEY,   auth: 'header', authKey: 'X-Api-Key'    },
+  sabnzbd:      { url: process.env.SABNZBD_URL,     key: process.env.SABNZBD_API_KEY,     auth: 'param',  authKey: 'apikey'       },
+  maintainerr:  { url: process.env.MAINTAINERR_URL, key: null,                            auth: null                              },
+  qbittorrent:  { url: process.env.QB_URL,           key: null,                            auth: 'cookie',
+                  user: process.env.QB_USER, pass: process.env.QB_PASS                                                            },
+  glances:      { url: process.env.GLANCES_URL,     key: null,                            auth: null                              },
 };
 
 const availableServices = Object.entries(SERVICES)
   .filter(([, s]) => s.url)
   .map(([name]) => name);
+
+// ── qBittorrent session cookie cache ───────────────────────────────────────────
+let qbCookie = null;
+
+async function qbLogin() {
+  const svc = SERVICES.qbittorrent;
+  if (!svc.url || !svc.user) return null;
+  try {
+    const res = await fetch(`${svc.url}/api/v2/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `username=${encodeURIComponent(svc.user)}&password=${encodeURIComponent(svc.pass || '')}`,
+      signal: AbortSignal.timeout(8000),
+    });
+    const cookie = res.headers.get('set-cookie');
+    if (cookie) {
+      qbCookie = cookie.split(';')[0]; // extract SID=... part
+      return qbCookie;
+    }
+  } catch {}
+  return null;
+}
+
+async function executeQbApi(endpoint) {
+  const svc = SERVICES.qbittorrent;
+  if (!svc.url) return { error: 'qBittorrent URL not configured.' };
+
+  if (!qbCookie) qbCookie = await qbLogin();
+  if (!qbCookie) return { error: 'Could not authenticate with qBittorrent.' };
+
+  const url = `${svc.url}${endpoint}`;
+  let res = await fetch(url, { headers: { Cookie: qbCookie }, signal: AbortSignal.timeout(10000) });
+
+  // If session expired, re-login once
+  if (res.status === 403) {
+    qbCookie = await qbLogin();
+    if (!qbCookie) return { error: 'qBittorrent session expired and re-login failed.' };
+    res = await fetch(url, { headers: { Cookie: qbCookie }, signal: AbortSignal.timeout(10000) });
+  }
+
+  if (!res.ok) return { error: `HTTP ${res.status} from qbittorrent${endpoint}` };
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { return { text }; }
+}
 
 // ── Tool definitions (sent to Claude — no credentials) ─────────────────────────
 const TOOL_DEFINITIONS = [
@@ -53,20 +120,21 @@ const TOOL_DEFINITIONS = [
     name: 'api',
     description: `Query a McRubes service API. Authentication is handled automatically — do not add credentials to the endpoint.
 Available services: ${availableServices.join(', ')}
-Provide the service name and the endpoint path.
 Examples:
-  service="radarr"      endpoint="/queue?pageSize=20"
-  service="sonarr"      endpoint="/queue?pageSize=20"
-  service="plex"        endpoint="/library/sections"
-  service="plex"        endpoint="/library/sections/1/recentlyAdded?X-Plex-Container-Size=10"
-  service="overseerr"   endpoint="/request?take=20&sort=added"
-  service="maintainerr" endpoint="/collections"
-  service="sabnzbd"     endpoint="?mode=queue&output=json"`,
+  service="radarr"       endpoint="/queue?pageSize=20"
+  service="sonarr"       endpoint="/queue?pageSize=20"
+  service="plex"         endpoint="/library/sections"
+  service="plex"         endpoint="/library/sections/1/recentlyAdded?X-Plex-Container-Size=10"
+  service="overseerr"    endpoint="/request?take=20&sort=added"
+  service="maintainerr"  endpoint="/collections"
+  service="sabnzbd"      endpoint="?mode=queue&output=json"
+  service="qbittorrent"  endpoint="/api/v2/torrents/info"
+  service="glances"      endpoint="/api/4/cpu"  (also: /api/4/mem /api/4/disk /api/4/all)`,
     input_schema: {
       type: 'object',
       properties: {
         service:  { type: 'string', enum: availableServices, description: 'Which service to query.' },
-        endpoint: { type: 'string', description: 'API path + query string, e.g. /queue or /library/sections' },
+        endpoint: { type: 'string', description: 'API path + query string.' },
       },
       required: ['service', 'endpoint'],
     },
@@ -75,10 +143,11 @@ Examples:
 
 // ── Tool executors ─────────────────────────────────────────────────────────────
 async function executeBash(command) {
-  let fullCommand;
+  const blocked = checkBashBlocklist(command);
+  if (blocked) return { error: blocked };
 
+  let fullCommand;
   if (sshAvailable) {
-    // Base64-encode the command so any quoting/special chars are safe over SSH
     const b64 = Buffer.from(command).toString('base64');
     fullCommand = `ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${SSH_USER}@${SSH_HOST} "echo ${b64} | base64 -d | bash"`;
   } else {
@@ -101,11 +170,12 @@ async function executeBash(command) {
 }
 
 async function executeApi(service, endpoint) {
-  const svc = SERVICES[service];
-  if (!svc)      return { error: `Unknown service: ${service}. Available: ${availableServices.join(', ')}` };
-  if (!svc.url)  return { error: `${service} is not configured (missing URL env var).` };
+  if (service === 'qbittorrent') return executeQbApi(endpoint);
 
-  // Inject auth without exposing it to the model
+  const svc = SERVICES[service];
+  if (!svc)     return { error: `Unknown service: ${service}. Available: ${availableServices.join(', ')}` };
+  if (!svc.url) return { error: `${service} is not configured (missing URL env var).` };
+
   let url = `${svc.url}${endpoint}`;
   const headers = {};
 
