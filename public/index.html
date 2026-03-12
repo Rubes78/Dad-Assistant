@@ -43,7 +43,7 @@
       align-items: center;
     }
 
-    #reset-btn, #settings-btn {
+    #reset-btn, #settings-btn, #history-btn {
       background: none;
       border: 1px solid #3a3a5c;
       color: #9090b0;
@@ -53,7 +53,7 @@
       font-size: 0.85rem;
       transition: all 0.2s;
     }
-    #reset-btn:hover, #settings-btn:hover { border-color: #a78bfa; color: #a78bfa; }
+    #reset-btn:hover, #settings-btn:hover, #history-btn:hover { border-color: #a78bfa; color: #a78bfa; }
 
     #settings-btn { padding: 6px 10px; font-size: 1rem; }
 
@@ -259,6 +259,60 @@
 
     #send-btn svg { width: 20px; height: 20px; }
 
+    #confirm-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    #confirm-overlay.open { display: flex; }
+    #confirm-dialog {
+      background: #1e293b;
+      border: 1px solid #3a3a5c;
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 440px;
+      width: 90%;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    }
+    #confirm-msg {
+      line-height: 1.6;
+      margin-bottom: 20px;
+      font-size: 1rem;
+    }
+    #confirm-buttons {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+    }
+    #confirm-no {
+      background: none;
+      border: 1px solid #3a3a5c;
+      color: #9090b0;
+      padding: 8px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+    #confirm-no:hover { border-color: #f87171; color: #f87171; }
+    #confirm-yes {
+      background: #7c3aed;
+      border: none;
+      color: white;
+      padding: 8px 18px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-family: inherit;
+      transition: background 0.2s;
+    }
+    #confirm-yes:hover { background: #6d28d9; }
+
     @media (max-width: 600px) {
       .bubble { font-size: 0.95rem; }
     }
@@ -270,16 +324,22 @@
   <h1>Fatharr</h1>
   <div class="header-buttons">
     <select id="model-select" title="AI Model">
-      <option value="claude-haiku-4-5-20251001">Cheap</option>
-      <option value="claude-sonnet-4-6" selected>Standard</option>
-      <option value="claude-opus-4-6">Smart</option>
+      <option value="cheap">Cheap</option>
+      <option value="standard" selected>Standard</option>
+      <option value="smart">Smart</option>
     </select>
+    <button id="history-btn" title="Chat history" style="padding:6px 10px;font-size:1rem;">&#9776;</button>
     <button id="reset-btn">New chat</button>
     <button id="settings-btn" title="Settings">&#9881;</button>
   </div>
   <div class="settings-menu" id="settings-menu">
-    <a href="/onboard">Re-run onboarding</a>
-    <a href="/setup">Setup wizard</a>
+    <a href="/setup">Settings</a>
+    <a href="#" id="rerun-onboard-link">Re-run onboarding</a>
+  </div>
+  <div class="settings-menu" id="history-menu" style="right:auto;left:auto;">
+    <div id="history-list" style="max-height:300px;overflow-y:auto;">
+      <span style="display:block;padding:10px 16px;color:#6060a0;font-size:0.85rem;">No previous chats</span>
+    </div>
   </div>
 </header>
 
@@ -287,6 +347,16 @@
   <div id="welcome">
     <h2>How can I help?</h2>
     <p>Ask me anything — finding movies, requesting content,<br>or any tech questions you have.</p>
+  </div>
+</div>
+
+<div id="confirm-overlay">
+  <div id="confirm-dialog">
+    <p id="confirm-msg"></p>
+    <div id="confirm-buttons">
+      <button id="confirm-no">No, cancel</button>
+      <button id="confirm-yes">Yes, proceed</button>
+    </div>
   </div>
 </div>
 
@@ -318,11 +388,35 @@
   if (savedModel) modelSelect.value = savedModel;
   modelSelect.addEventListener('change', () => localStorage.setItem('selectedModel', modelSelect.value));
 
+  const historyBtn  = document.getElementById('history-btn');
+  const historyMenu = document.getElementById('history-menu');
+  const historyList = document.getElementById('history-list');
+
   settingsBtn.addEventListener('click', (e) => {
     e.stopPropagation();
+    historyMenu.classList.remove('open');
     settingsMenu.classList.toggle('open');
   });
-  document.addEventListener('click', () => settingsMenu.classList.remove('open'));
+
+  historyBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    settingsMenu.classList.remove('open');
+    historyMenu.classList.toggle('open');
+    if (historyMenu.classList.contains('open')) await loadHistory();
+  });
+
+  document.addEventListener('click', () => {
+    settingsMenu.classList.remove('open');
+    historyMenu.classList.remove('open');
+  });
+
+  // Re-run onboarding: reset flag, go to setup wizard first, then onboarding chat
+  document.getElementById('rerun-onboard-link').addEventListener('click', async (e) => {
+    e.preventDefault();
+    if (!confirm('This will let you review settings, then re-run the server onboarding. Continue?')) return;
+    try { await fetch('/api/onboard/reset', { method: 'POST' }); } catch {}
+    window.location.href = '/setup?flow=onboard';
+  });
 
   let sessionId = localStorage.getItem('sessionId') || null;
   let isStreaming = false;
@@ -449,6 +543,143 @@
     return out;
   }
 
+  async function loadHistory() {
+    try {
+      const res = await fetch('/api/sessions');
+      const list = await res.json();
+      if (!list.length) {
+        historyList.innerHTML = '<span style="display:block;padding:10px 16px;color:#6060a0;font-size:0.85rem;">No previous chats</span>';
+        return;
+      }
+      historyList.innerHTML = list.map(s => {
+        const active = s.id === sessionId ? ' style="color:#a78bfa;font-weight:600;"' : '';
+        const ago = formatTimeAgo(s.lastActive);
+        return `<a href="#" data-sid="${s.id}"${active} style="display:block;padding:10px 16px;color:#c8c8e0;text-decoration:none;font-size:0.9rem;transition:background 0.15s;border-bottom:1px solid #1a2438;" onmouseover="this.style.background='#2a3a50'" onmouseout="this.style.background=''"><span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(s.title)}</span><span style="font-size:0.75rem;color:#6060a0;">${ago}</span></a>`;
+      }).join('');
+      historyList.querySelectorAll('a[data-sid]').forEach(a => {
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          loadSession(a.dataset.sid);
+          historyMenu.classList.remove('open');
+        });
+      });
+    } catch {}
+  }
+
+  function formatTimeAgo(ts) {
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── Confirmation modal ──────────────────────────────────────────────────
+  const confirmOverlay = document.getElementById('confirm-overlay');
+  const confirmMsg     = document.getElementById('confirm-msg');
+  const confirmYes     = document.getElementById('confirm-yes');
+  const confirmNo      = document.getElementById('confirm-no');
+
+  function showConfirmation(conf) {
+    let html = `Are you sure you'd like to <strong>${escapeHtml(conf.action)}</strong>?`;
+    if (conf.tier === 3) {
+      html += `<br><br><em style="color:#fbbf24;">${escapeHtml(conf.adminName)} highly recommends that you check with them before proceeding for tasks like this.</em>`;
+    }
+    confirmMsg.innerHTML = html;
+    confirmOverlay.classList.add('open');
+  }
+
+  function hideConfirmation() {
+    confirmOverlay.classList.remove('open');
+  }
+
+  confirmYes.addEventListener('click', () => { hideConfirmation(); handleConfirmation(true); });
+  confirmNo.addEventListener('click',  () => { hideConfirmation(); handleConfirmation(false); });
+
+  async function handleConfirmation(approved) {
+    const responseBubble = addMessage('assistant', '');
+    responseBubble.classList.add('streaming');
+    isStreaming = true;
+    sendBtn.disabled = true;
+
+    let buffer = '';
+    let statusText = '';
+    const renderBubble = () => {
+      responseBubble.innerHTML =
+        (buffer ? formatText(buffer) : '') +
+        (statusText ? `<em style="color:#7070a0;font-size:0.88em;display:block;margin-top:4px">${statusText}</em>` : '');
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    };
+
+    try {
+      const res = await fetch('/api/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, approved })
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let raw = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        raw += decoder.decode(value, { stream: true });
+        const lines = raw.split('\n');
+        raw = lines.pop();
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.text)   { buffer += data.text; statusText = ''; renderBubble(); }
+            if (data.status) { statusText = data.status; renderBubble(); }
+            if (data.error)  { responseBubble.innerHTML = `<em style="color:#f87171">${data.error}</em>`; }
+            if (data.confirmation) { showConfirmation(data.confirmation); }
+          } catch {}
+        }
+      }
+    } catch {
+      responseBubble.innerHTML = '<em style="color:#f87171">Connection error. Please try again.</em>';
+    }
+
+    responseBubble.classList.remove('streaming');
+    isStreaming = false;
+    sendBtn.disabled = false;
+    inputEl.focus();
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  async function loadSession(sid) {
+    try {
+      const res = await fetch(`/api/sessions/${sid}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      sessionId = sid;
+      localStorage.setItem('sessionId', sid);
+      messagesEl.innerHTML = '';
+      // Replay messages (skip seed messages)
+      const msgs = data.messages.filter(m => {
+        if (m.role === 'user' && m.content === 'What can you do?') return false;
+        if (m.role === 'assistant' && m.content.includes('I have the full server reference loaded')) return false;
+        return true;
+      });
+      for (const m of msgs) addMessage(m.role, m.content);
+      if (!msgs.length) {
+        messagesEl.appendChild(welcomeEl);
+        welcomeEl.style.display = '';
+      }
+    } catch {}
+  }
+
   async function sendMessage() {
     const text = inputEl.value.trim();
     if (!text) return;
@@ -513,6 +744,9 @@
             }
             if (data.error) {
               responseBubble.innerHTML = `<em style="color:#f87171">${data.error}</em>`;
+            }
+            if (data.confirmation) {
+              showConfirmation(data.confirmation);
             }
           } catch {}
         }

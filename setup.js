@@ -73,7 +73,7 @@ router.post('/generate-ssh-key', async (req, res) => {
   }
 
   try {
-    await execAsync(`ssh-keygen -t ed25519 -f "${keyPath}" -N "" -C "fatharr@$(hostname)"`, { timeout: 10000 });
+    await execAsync(`ssh-keygen -t ed25519 -f "${keyPath}" -N "" -C "fatharr"`, { timeout: 10000 });
 
     // Symlink so the app finds it at /app/ssh_key
     if (!fs.existsSync('/app/ssh_key')) {

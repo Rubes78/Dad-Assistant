@@ -52,7 +52,7 @@ function get(key, defaultValue) {
  * Check if the app has been configured (has an API key).
  */
 function isConfigured() {
-  return !!(get('ANTHROPIC_API_KEY'));
+  return !!(get('ANTHROPIC_API_KEY') || get('OPENROUTER_API_KEY'));
 }
 
 /**
@@ -60,7 +60,7 @@ function isConfigured() {
  */
 function getAll() {
   const keys = [
-    'ANTHROPIC_API_KEY', 'CLAUDE_MODEL', 'PORT',
+    'LLM_PROVIDER', 'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'CLAUDE_MODEL', 'PORT',
     'ADMIN_NAME', 'ADMIN_CONTACT',
     'SSH_HOST', 'SSH_USER', 'SSH_KEY_PATH',
     'APPRISE_URL', 'APPRISE_URLS',
@@ -77,7 +77,7 @@ function getAll() {
   ];
 
   const SECRET_KEYS = [
-    'ANTHROPIC_API_KEY', 'RADARR_API_KEY', 'SONARR_API_KEY',
+    'ANTHROPIC_API_KEY', 'OPENROUTER_API_KEY', 'RADARR_API_KEY', 'SONARR_API_KEY',
     'PLEX_TOKEN', 'OVERSEERR_API_KEY', 'SABNZBD_API_KEY',
     'QB_PASS', 'AUTH_PASS',
   ];

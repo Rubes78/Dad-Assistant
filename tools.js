@@ -130,6 +130,76 @@ function classifyCommand(command) {
   return { tier: 3, label: 'escalate' };
 }
 
+// ── API write allowlist ─────────────────────────────────────────────────────
+// Same tiered philosophy as bash: only explicitly allowed write operations pass.
+// Anything not listed defaults to Tier 3 (refused).
+const API_WRITE_ALLOWLIST = [
+  // Radarr — library management
+  { service: 'radarr', method: 'POST', pattern: /^\/api\/v3\/command$/, tier: 1,
+    bodyCheck: (b) => ['RescanMovie', 'RefreshMovie', 'RssSync'].includes(b?.name),
+    label: 'Radarr scan/refresh' },
+  { service: 'radarr', method: 'POST', pattern: /^\/api\/v3\/command$/, tier: 2,
+    label: 'Radarr command' },
+  { service: 'radarr', method: 'POST', pattern: /^\/api\/v3\/movie$/, tier: 2,
+    label: 'Add movie to Radarr' },
+  { service: 'radarr', method: 'DELETE', pattern: /^\/api\/v3\/movie\/\d+/, tier: 2,
+    label: 'Remove movie from Radarr' },
+
+  // Sonarr — library management
+  { service: 'sonarr', method: 'POST', pattern: /^\/api\/v3\/command$/, tier: 1,
+    bodyCheck: (b) => ['RescanSeries', 'RefreshSeries', 'RssSync'].includes(b?.name),
+    label: 'Sonarr scan/refresh' },
+  { service: 'sonarr', method: 'POST', pattern: /^\/api\/v3\/command$/, tier: 2,
+    label: 'Sonarr command' },
+  { service: 'sonarr', method: 'POST', pattern: /^\/api\/v3\/series$/, tier: 2,
+    label: 'Add series to Sonarr' },
+  { service: 'sonarr', method: 'DELETE', pattern: /^\/api\/v3\/series\/\d+/, tier: 2,
+    label: 'Remove series from Sonarr' },
+
+  // Overseerr — media requests
+  { service: 'overseerr', method: 'POST', pattern: /^\/api\/v1\/request$/, tier: 2,
+    label: 'Request media in Overseerr' },
+
+  // SABnzbd — queue management (actions are in query string)
+  { service: 'sabnzbd', method: 'POST', pattern: /mode=pause/, tier: 1,
+    label: 'Pause SABnzbd queue' },
+  { service: 'sabnzbd', method: 'POST', pattern: /mode=resume/, tier: 1,
+    label: 'Resume SABnzbd queue' },
+  { service: 'sabnzbd', method: 'POST', pattern: /mode=queue.*name=delete/, tier: 2,
+    label: 'Delete SABnzbd queue item' },
+
+  // qBittorrent — torrent management
+  { service: 'qbittorrent', method: 'POST', pattern: /\/api\/v2\/torrents\/pause$/, tier: 1,
+    label: 'Pause torrents' },
+  { service: 'qbittorrent', method: 'POST', pattern: /\/api\/v2\/torrents\/resume$/, tier: 1,
+    label: 'Resume torrents' },
+  { service: 'qbittorrent', method: 'POST', pattern: /\/api\/v2\/torrents\/delete$/, tier: 2,
+    label: 'Delete torrents' },
+
+  // Plex — library management
+  { service: 'plex', method: 'POST', pattern: /\/library\/sections\/\d+\/refresh/, tier: 1,
+    label: 'Refresh Plex library' },
+];
+
+function classifyApiCall(service, method, endpoint, body) {
+  if (method === 'GET') return { tier: 1, label: 'auto' };
+
+  const endpointPath = endpoint.split('?')[0];
+
+  for (const rule of API_WRITE_ALLOWLIST) {
+    if (rule.service !== service) continue;
+    if (rule.method !== method) continue;
+    // Test pattern against both full endpoint (for query-string patterns) and path-only
+    if (!rule.pattern.test(endpoint) && !rule.pattern.test(endpointPath)) continue;
+    // If rule has a body check, only match if body passes
+    if (rule.bodyCheck && !rule.bodyCheck(body)) continue;
+    return { tier: rule.tier, label: rule.label };
+  }
+
+  // Default deny for unlisted write operations
+  return { tier: 3, label: 'escalate' };
+}
+
 // ── Service registry (from env) ──────────────────────────────────────────────
 const SERVICES = {
   radarr:       { url: process.env.RADARR_URL,      key: process.env.RADARR_API_KEY,      auth: 'header', authKey: 'X-Api-Key'    },
@@ -169,7 +239,7 @@ async function qbLogin() {
   return null;
 }
 
-async function executeQbApi(endpoint) {
+async function executeQbApi(endpoint, method = 'GET', body = null) {
   const svc = SERVICES.qbittorrent;
   if (!svc.url) return { error: 'qBittorrent URL not configured.' };
 
@@ -177,17 +247,26 @@ async function executeQbApi(endpoint) {
   if (!qbCookie) return { error: 'Could not authenticate with qBittorrent.' };
 
   const url = `${svc.url}${endpoint}`;
-  let res = await fetch(url, { headers: { Cookie: qbCookie }, signal: AbortSignal.timeout(10000) });
+  const fetchOpts = { method, headers: { Cookie: qbCookie }, signal: AbortSignal.timeout(10000) };
+
+  // qBittorrent uses form-encoded POST bodies
+  if (body && method !== 'GET') {
+    fetchOpts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    fetchOpts.body = Object.entries(body).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+  }
+
+  let res = await fetch(url, fetchOpts);
 
   if (res.status === 403) {
     qbCookie = await qbLogin();
     if (!qbCookie) return { error: 'qBittorrent session expired and re-login failed.' };
-    res = await fetch(url, { headers: { Cookie: qbCookie }, signal: AbortSignal.timeout(10000) });
+    fetchOpts.headers.Cookie = qbCookie;
+    res = await fetch(url, fetchOpts);
   }
 
   if (!res.ok) return { error: `HTTP ${res.status} from qbittorrent${endpoint}` };
   const text = await res.text();
-  try { return JSON.parse(text); } catch { return { text }; }
+  try { return JSON.parse(text); } catch { return text ? { text } : { ok: true }; }
 }
 
 // ── Available runbook names for tool description ─────────────────────────────
@@ -207,16 +286,18 @@ SSH connection is handled automatically. Just provide the command.`
     input_schema: {
       type: 'object',
       properties: {
-        command: { type: 'string', description: 'Shell command to run.' },
+        command:   { type: 'string', description: 'Shell command to run.' },
+        confirmed: { type: 'boolean', description: 'Set to true only after the user has explicitly approved a Tier 2 command. Never set this on the first call.' },
       },
       required: ['command'],
     },
   },
   {
     name: 'api',
-    description: `Query a service API. Authentication is handled automatically — do not add credentials to the endpoint.
+    description: `Call a service API. Authentication is handled automatically — do not add credentials to the endpoint.
 Available services: ${availableServices.join(', ')}
-Examples:
+
+GET examples (read data):
   service="radarr"       endpoint="/queue?pageSize=20"
   service="sonarr"       endpoint="/queue?pageSize=20"
   service="plex"         endpoint="/library/sections"
@@ -225,12 +306,29 @@ Examples:
   service="maintainerr"  endpoint="/collections"
   service="sabnzbd"      endpoint="?mode=queue&output=json"
   service="qbittorrent"  endpoint="/api/v2/torrents/info"
-  service="glances"      endpoint="/api/4/cpu"  (also: /api/4/mem /api/4/disk /api/4/all)`,
+  service="glances"      endpoint="/api/4/cpu"  (also: /api/4/mem /api/4/disk /api/4/all)
+
+POST examples (write/action — subject to tiered permissions):
+  service="overseerr"    endpoint="/request"               method="POST" body={mediaType:"movie",mediaId:12345}
+  service="radarr"       endpoint="/command"                method="POST" body={name:"RefreshMovie"}
+  service="sonarr"       endpoint="/command"                method="POST" body={name:"RssSync"}
+  service="sabnzbd"      endpoint="?mode=pause&output=json" method="POST"
+  service="sabnzbd"      endpoint="?mode=resume&output=json" method="POST"
+  service="qbittorrent"  endpoint="/api/v2/torrents/pause"  method="POST" body={hashes:"all"}
+  service="qbittorrent"  endpoint="/api/v2/torrents/resume" method="POST" body={hashes:"all"}
+
+Write operations use the same tier system as bash:
+- Tier 1 (auto): Safe operations like library scans, pause/resume downloads
+- Tier 2 (confirm): State changes like requesting media or deleting items — explain in plain English and wait for user approval, then call again with confirmed=true
+- Anything not on the approved list is refused.`,
     input_schema: {
       type: 'object',
       properties: {
-        service:  { type: 'string', enum: availableServices, description: 'Which service to query.' },
-        endpoint: { type: 'string', description: 'API path + query string.' },
+        service:   { type: 'string', enum: availableServices, description: 'Which service to call.' },
+        endpoint:  { type: 'string', description: 'API path + query string.' },
+        method:    { type: 'string', enum: ['GET', 'POST', 'PUT', 'DELETE'], description: 'HTTP method. Defaults to GET.' },
+        body:      { type: 'object', description: 'JSON request body for POST/PUT requests.' },
+        confirmed: { type: 'boolean', description: 'Set to true only after the user has explicitly approved a Tier 2 action. Never set this on the first call.' },
       },
       required: ['service', 'endpoint'],
     },
@@ -287,32 +385,71 @@ async function runSshCommand(command, timeout = 30000) {
 }
 
 // ── Tool executors ───────────────────────────────────────────────────────────
-async function executeBash(command) {
+async function executeBash(command, confirmed = false) {
   const classification = classifyCommand(command);
 
-  // Tier 3: refuse and escalate
-  if (classification.tier === 3) {
+  // Tier 3: potentially dangerous — require confirmation with strong warning
+  if (classification.tier === 3 && !confirmed) {
     const result = {
-      error: 'escalate_to_admin',
+      needs_confirmation: true,
       tier: 3,
       command,
-      message: `This command requires admin approval. Call/text ${ADMIN_NAME}${ADMIN_CONTACT ? ` (${ADMIN_CONTACT})` : ''} and tell them: "The assistant wants to run: ${command}". They'll know what to do.`,
+      action: command,
+      message: `This is a potentially risky command. ${ADMIN_NAME} highly recommends that you check with them before proceeding.`,
     };
-    audit.log({ tool: 'bash', input: { command }, tier: 3, result: 'refused' });
-    notify.send(`⛔ Tier 3 command refused`, `Command: ${command}\nUser was told to contact admin.`);
+    audit.log({ tool: 'bash', input: { command }, tier: 3, result: 'awaiting_confirmation' });
+    notify.send(`⚠️ Tier 3 command awaiting approval`, `Command: ${command}`);
     return result;
   }
 
-  // Tier 2: return confirmation prompt (don't execute yet)
-  if (classification.tier === 2) {
+  // Tier 3 confirmed: execute with notification
+  if (classification.tier === 3 && confirmed) {
+    try {
+      const result = await runSshCommand(command);
+      audit.log({ tool: 'bash', input: { command }, tier: 3, result: 'executed_after_confirmation' });
+      notify.send(`⚠️ Tier 3 command executed (user-approved)`, `Command: ${command}\nResult: ${result.stdout?.slice(0, 200) || 'OK'}`);
+      return result;
+    } catch (err) {
+      audit.log({ tool: 'bash', input: { command }, tier: 3, result: 'error', error: err.message });
+      return { error: err.message, stdout: err.stdout?.trim() || undefined, stderr: err.stderr?.trim() || undefined };
+    }
+  }
+
+  // Tier 2: return confirmation prompt unless user already approved
+  if (classification.tier === 2 && !confirmed) {
     const result = {
       needs_confirmation: true,
       tier: 2,
       command,
-      message: `This command needs your approval before I run it. Please explain to the user what this does in plain English, what could go wrong, and say: "If you're not sure, call/text ${ADMIN_NAME} and tell them: '[one-sentence summary]'. Otherwise, say 'go ahead' and I'll run it."`,
+      action: command,
+      message: `This command needs your approval before I run it.`,
     };
     audit.log({ tool: 'bash', input: { command }, tier: 2, result: 'awaiting_confirmation' });
     return result;
+  }
+
+  // Tier 2 confirmed: backup if needed, then execute + notify
+  if (classification.tier === 2 && confirmed) {
+    const needsBackup = BACKUP_TRIGGERS.some(p => p.test(command.trim()));
+    if (needsBackup) {
+      try {
+        const backupResult = await backup.backupBeforeChange(command, runSshCommand);
+        if (backupResult.error) console.warn('Pre-change backup warning:', backupResult.error);
+      } catch (err) {
+        console.warn('Pre-change backup failed:', err.message);
+      }
+    }
+
+    try {
+      const result = await runSshCommand(command);
+      audit.log({ tool: 'bash', input: { command }, tier: 2, result: 'executed_after_confirmation' });
+      notify.send(`✅ Tier 2 command executed`, `Command: ${command}\nResult: ${result.stdout?.slice(0, 200) || 'OK'}`);
+      return result;
+    } catch (err) {
+      audit.log({ tool: 'bash', input: { command }, tier: 2, result: 'error', error: err.message });
+      notify.send(`❌ Tier 2 command failed`, `Command: ${command}\nError: ${err.message}`);
+      return { error: err.message, stdout: err.stdout?.trim() || undefined, stderr: err.stderr?.trim() || undefined };
+    }
   }
 
   // Tier 1: auto-execute
@@ -370,16 +507,66 @@ async function executeBashConfirmed(command) {
   }
 }
 
-async function executeApi(service, endpoint) {
+async function executeApi(service, endpoint, method = 'GET', body = null, confirmed = false) {
+  const logInput = { service, endpoint, method, body: body ? '(body)' : undefined };
+
+  // qBittorrent has its own handler (cookie auth)
   if (service === 'qbittorrent') {
-    const result = await executeQbApi(endpoint);
-    audit.log({ tool: 'api', input: { service, endpoint }, result: result.error ? 'error' : 'success' });
+    if (method !== 'GET') {
+      const classification = classifyApiCall(service, method, endpoint, body);
+      if (classification.tier === 3 && !confirmed) {
+        audit.log({ tool: 'api', input: logInput, tier: 3, result: 'awaiting_confirmation' });
+        return { needs_confirmation: true, tier: 3, action: classification.label || `${method} qbittorrent${endpoint}`, message: `This API action is not on the approved list. ${ADMIN_NAME} highly recommends that you check with them before proceeding.` };
+      }
+      if (classification.tier === 2 && !confirmed) {
+        audit.log({ tool: 'api', input: logInput, tier: 2, result: 'awaiting_confirmation' });
+        return { needs_confirmation: true, tier: 2, action: classification.label, message: `This action needs your approval.` };
+      }
+      if (classification.tier >= 2 && confirmed) {
+        const emoji = classification.tier === 3 ? '⚠️' : '✅';
+        notify.send(`${emoji} API action: ${classification.label || 'qBittorrent'}`, `${method} qbittorrent${endpoint}`);
+      }
+    }
+    const result = await executeQbApi(endpoint, method, body);
+    audit.log({ tool: 'api', input: logInput, result: result.error ? 'error' : 'success' });
     return result;
   }
 
   const svc = SERVICES[service];
   if (!svc)     return { error: `Unknown service: ${service}. Available: ${availableServices.join(', ')}` };
   if (!svc.url) return { error: `${service} is not configured (missing URL env var).` };
+
+  // Tiered permission check for write operations
+  if (method !== 'GET') {
+    const classification = classifyApiCall(service, method, endpoint, body);
+
+    if (classification.tier === 3 && !confirmed) {
+      audit.log({ tool: 'api', input: logInput, tier: 3, result: 'awaiting_confirmation' });
+      notify.send('⚠️ API write awaiting approval', `${method} ${service}${endpoint}`);
+      return {
+        needs_confirmation: true,
+        tier: 3,
+        action: classification.label || `${method} ${service}${endpoint}`,
+        message: `This API action is not on the approved list. ${ADMIN_NAME} highly recommends that you check with them before proceeding.`,
+      };
+    }
+
+    if (classification.tier === 2 && !confirmed) {
+      audit.log({ tool: 'api', input: logInput, tier: 2, result: 'awaiting_confirmation' });
+      return {
+        needs_confirmation: true,
+        tier: 2,
+        action: classification.label,
+        message: `This action needs your approval.`,
+      };
+    }
+
+    // Confirmed (tier 2 or 3) or Tier 1 — proceed
+    if (classification.tier >= 2) {
+      const emoji = classification.tier === 3 ? '⚠️' : '✅';
+      notify.send(`${emoji} API action: ${classification.label || 'custom'}`, `${method} ${service}${endpoint}`);
+    }
+  }
 
   let url = `${svc.url}${endpoint}`;
   const headers = {};
@@ -393,17 +580,24 @@ async function executeApi(service, endpoint) {
     }
   }
 
+  // Build fetch options
+  const fetchOpts = { method, headers, signal: AbortSignal.timeout(10000) };
+  if (body && method !== 'GET') {
+    headers['Content-Type'] = 'application/json';
+    fetchOpts.body = JSON.stringify(body);
+  }
+
   try {
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
+    const res = await fetch(url, fetchOpts);
     if (!res.ok) {
-      audit.log({ tool: 'api', input: { service, endpoint }, result: 'error', error: `HTTP ${res.status}` });
+      audit.log({ tool: 'api', input: logInput, result: 'error', error: `HTTP ${res.status}` });
       return { error: `HTTP ${res.status} from ${service}${endpoint}` };
     }
     const text = await res.text();
-    audit.log({ tool: 'api', input: { service, endpoint }, result: 'success' });
-    try { return JSON.parse(text); } catch { return { text }; }
+    audit.log({ tool: 'api', input: logInput, result: 'success' });
+    try { return JSON.parse(text); } catch { return text ? { text } : { ok: true }; }
   } catch (err) {
-    audit.log({ tool: 'api', input: { service, endpoint }, result: 'error', error: err.message });
+    audit.log({ tool: 'api', input: logInput, result: 'error', error: err.message });
     return { error: err.message };
   }
 }
@@ -449,7 +643,7 @@ async function executeTool(name, input) {
     switch (name) {
       case 'bash':           return wrapLargeResult(await executeBash(input.command));
       case 'bash_confirmed': return wrapLargeResult(await executeBashConfirmed(input.command));
-      case 'api':            return wrapLargeResult(await executeApi(input.service, input.endpoint));
+      case 'api':            return wrapLargeResult(await executeApi(input.service, input.endpoint, input.method || 'GET', input.body || null, input.confirmed || false));
       case 'runbook':        return wrapLargeResult(await executeRunbook(input.name));
       case 'read_result':    return readResultFile(input.id, { offset: input.offset, limit: input.limit, grep: input.grep });
       default:               return { error: `Unknown tool: ${name}` };

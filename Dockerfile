@@ -11,6 +11,7 @@ COPY backup.js .
 COPY runbooks.js .
 COPY healthcheck.js .
 COPY config.js .
+COPY llm.js .
 COPY setup.js .
 COPY onboard.js .
 COPY public/ public/

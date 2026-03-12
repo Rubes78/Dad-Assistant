@@ -191,14 +191,30 @@
 </header>
 
 <main>
-  <!-- Step 1: API Key -->
+  <!-- Step 1: LLM Provider -->
   <div class="step">
-    <h2><span class="num">1</span> Anthropic API Key</h2>
-    <p>Required. Get one from <a href="https://console.anthropic.com" target="_blank" style="color:#93c5fd">console.anthropic.com</a>.</p>
-    <label for="api-key">API Key</label>
-    <input type="password" id="api-key" placeholder="sk-ant-..." />
+    <h2><span class="num">1</span> AI Provider</h2>
+    <p>Choose your LLM provider. <a href="https://openrouter.ai" target="_blank" style="color:#93c5fd">OpenRouter</a> lets you use Claude models with pay-as-you-go pricing, or <a href="https://console.anthropic.com" target="_blank" style="color:#93c5fd">Anthropic</a> for direct API access.</p>
+
+    <label for="llm-provider">Provider</label>
+    <select id="llm-provider" style="width:100%;background:#0f172a;border:1px solid #2a3a50;border-radius:8px;color:#e8e8f0;font-size:0.95rem;padding:8px 12px;outline:none;font-family:inherit;margin-bottom:4px;">
+      <option value="anthropic">Anthropic (direct)</option>
+      <option value="openrouter">OpenRouter</option>
+    </select>
+
+    <div id="anthropic-fields">
+      <label for="api-key">Anthropic API Key</label>
+      <input type="password" id="api-key" placeholder="sk-ant-..." />
+    </div>
+
+    <div id="openrouter-fields" style="display:none;">
+      <label for="openrouter-key">OpenRouter API Key</label>
+      <input type="password" id="openrouter-key" placeholder="sk-or-..." />
+      <p class="hint">Get one from <a href="https://openrouter.ai/keys" target="_blank" style="color:#93c5fd">openrouter.ai/keys</a></p>
+    </div>
+
     <label for="model">Model (optional)</label>
-    <input type="text" id="model" placeholder="claude-sonnet-4-6" />
+    <input type="text" id="model" placeholder="Leave blank for default" />
   </div>
 
   <!-- Step 2: Admin Info -->
@@ -356,13 +372,16 @@
   </div>
 
   <button id="save-all" onclick="saveAll()">Save & Launch Fatharr</button>
+  <button id="back-btn" class="secondary" style="width:100%;padding:14px;font-size:1.1rem;margin-top:8px;display:none;" onclick="window.location.href='/'">Back to Chat</button>
   <div id="save-status" class="status"></div>
 </main>
 
 <script>
   // Field ID → config key mapping
   const FIELDS = {
+    'llm-provider':  'LLM_PROVIDER',
     'api-key':       'ANTHROPIC_API_KEY',
+    'openrouter-key':'OPENROUTER_API_KEY',
     'model':         'CLAUDE_MODEL',
     'admin-name':    'ADMIN_NAME',
     'admin-contact': 'ADMIN_CONTACT',
@@ -387,8 +406,25 @@
     'auth-pass':     'AUTH_PASS',
   };
 
+  // Detect flow mode: ?flow=onboard means setup → onboarding, otherwise settings mode
+  const flowParam = new URLSearchParams(window.location.search).get('flow');
+  const isOnboardFlow = flowParam === 'onboard';
+  const isSettingsMode = !isOnboardFlow && document.referrer.includes(window.location.origin);
+
   // Load existing config on page load
   window.addEventListener('DOMContentLoaded', async () => {
+    const saveBtn = document.getElementById('save-all');
+    const backBtn = document.getElementById('back-btn');
+
+    if (isOnboardFlow) {
+      saveBtn.textContent = 'Save & Start Onboarding';
+      document.querySelector('header p').textContent = 'Review your settings, then onboarding will explore your server.';
+    } else if (isSettingsMode) {
+      saveBtn.textContent = 'Save Settings';
+      backBtn.style.display = '';
+      document.querySelector('header p').textContent = 'Update your configuration — changes take effect on next container restart.';
+    }
+
     try {
       const res = await fetch('/api/setup/status');
       const data = await res.json();
@@ -403,8 +439,19 @@
       if (data.sshKeyExists) {
         document.getElementById('test-ssh-btn').style.display = '';
       }
+      // Trigger provider toggle after config loads
+      toggleProvider();
     } catch {}
   });
+
+  // Provider toggle: show/hide the right API key field
+  const providerSelect = document.getElementById('llm-provider');
+  providerSelect.addEventListener('change', toggleProvider);
+  function toggleProvider() {
+    const isOpenRouter = providerSelect.value === 'openrouter';
+    document.getElementById('anthropic-fields').style.display = isOpenRouter ? 'none' : '';
+    document.getElementById('openrouter-fields').style.display = isOpenRouter ? '' : 'none';
+  }
 
   function toggleCollapsible(el) {
     el.classList.toggle('open');
@@ -524,8 +571,8 @@
       }
     }
 
-    if (!settings.ANTHROPIC_API_KEY) {
-      setStatus('save-status', 'err', 'API key is required.');
+    if (!settings.ANTHROPIC_API_KEY && !settings.OPENROUTER_API_KEY) {
+      setStatus('save-status', 'err', 'An API key is required (Anthropic or OpenRouter).');
       btn.disabled = false;
       btn.textContent = 'Save & Launch Fatharr';
       return;
@@ -540,8 +587,15 @@
       const data = await res.json();
 
       if (data.ok) {
-        setStatus('save-status', 'ok', 'Configuration saved! Redirecting to chat...');
-        setTimeout(() => window.location.href = '/onboard', 1500);
+        if (isOnboardFlow) {
+          setStatus('save-status', 'ok', 'Configuration saved! Starting onboarding...');
+          setTimeout(() => window.location.href = '/onboard', 1500);
+        } else if (isSettingsMode) {
+          setStatus('save-status', 'ok', 'Settings saved! Restart the container to apply changes.');
+        } else {
+          setStatus('save-status', 'ok', 'Configuration saved! Redirecting...');
+          setTimeout(() => window.location.href = '/onboard', 1500);
+        }
       } else {
         setStatus('save-status', 'err', data.error);
       }

@@ -12,11 +12,10 @@
  */
 
 const express = require('express');
-const Anthropic = require('@anthropic-ai/sdk');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const config = require('./config');
+const llm    = require('./llm');
 const { TOOL_DEFINITIONS, executeTool, sshAvailable, runSshCommand } = require('./tools');
 const audit = require('./audit');
 
@@ -129,7 +128,27 @@ const ADMIN_NAME = config.get('ADMIN_NAME', 'your admin');
 
 function getOnboardingPrompt() {
   const hasSSH = sshAvailable;
-  return `You are Fatharr, a home server assistant, and this is your first-run onboarding session. Your goal is to explore this server, learn about it, and build your own reference document (CLAUDE.md) with what you discover.
+  const hasExistingClaudeMd = fs.existsSync(CLAUDE_MD_PATH);
+  let existingContent = '';
+  if (hasExistingClaudeMd) {
+    try { existingContent = fs.readFileSync(CLAUDE_MD_PATH, 'utf8'); } catch {}
+  }
+
+  const rerunNote = hasExistingClaudeMd
+    ? `\n\n## IMPORTANT: Re-run Detected
+You already have a reference document (CLAUDE.md) from a previous onboarding session. Before exploring:
+1. **Tell the user** you found your existing notes and ask if they'd like you to re-explore the server from scratch, or just review/update what you already have.
+2. If they want a full re-explore, proceed with the normal onboarding flow below.
+3. If they just want updates, read through your existing CLAUDE.md, check if services are still running, and only update sections that have changed.
+
+Here's a preview of your existing document (first 500 chars):
+\`\`\`
+${existingContent.slice(0, 500)}
+\`\`\`\n`
+    : '';
+
+  return `You are Fatharr, a home server assistant, and this is ${hasExistingClaudeMd ? 'a re-run of your' : 'your first-run'} onboarding session. Your goal is to explore this server, learn about it, and build your own reference document (CLAUDE.md) with what you discover.
+${rerunNote}
 
 ## Your Mission
 Have a friendly, conversational onboarding chat with the user. You should:
@@ -186,8 +205,7 @@ router.post('/chat', async (req, res) => {
 
   const send = (data) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-  const client = new Anthropic({ apiKey: config.get('ANTHROPIC_API_KEY', '') });
-  const MODEL = process.env.ONBOARD_MODEL || 'claude-haiku-4-5-20251001';
+  const MODEL = llm.getOnboardModel();
 
   let workingMessages = [...onboardSession.messages];
   let fullResponse = '';
@@ -197,7 +215,7 @@ router.post('/chat', async (req, res) => {
       let response;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          response = await client.messages.create({
+          response = await llm.create({
             model: MODEL,
             max_tokens: 4096,
             system: getOnboardingPrompt(),
@@ -278,6 +296,15 @@ router.post('/complete', (req, res) => {
   onboardSession = { messages: [], lastActive: Date.now() };
 
   res.json({ ok: true, message: 'Onboarding complete! Redirecting to chat.' });
+});
+
+// ── Reset onboarding (allows re-running) ────────────────────────────────────
+router.post('/reset', (req, res) => {
+  const saved = config.getSaved();
+  saved._onboarded = false;
+  config.save(saved);
+  onboardSession = { messages: [], lastActive: Date.now() };
+  res.json({ ok: true, message: 'Onboarding reset. You will be redirected to onboarding.' });
 });
 
 // ── Check onboarding status ─────────────────────────────────────────────────
