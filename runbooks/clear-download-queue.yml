@@ -1,0 +1,9 @@
+name: clear-download-queue
+description: Check for stuck downloads and show queue status
+steps:
+  - type: check
+    command: "echo 'Checking download clients...'"
+    description: Starting download queue check
+  - type: report
+    message: I'll check the download queues using the API tools. Let me query SABnzbd and your torrent client for you.
+notify_admin: false
