@@ -1,0 +1,19 @@
+name: restart-plex
+description: Restart Plex when it's unresponsive or not loading
+steps:
+  - type: check
+    command: docker ps --filter name=plex --format '{{.Status}}'
+    description: Check if Plex container is running
+    expect: Up
+    on_fail: continue
+  - type: action
+    command: docker restart plex
+    description: Restarting the Plex container
+  - type: wait
+    seconds: 15
+  - type: verify
+    command: docker ps --filter name=plex --format '{{.Status}}'
+    expect: Up
+    success_message: Plex is back up and running! Give it a minute to fully load, then try again.
+    failure_message: Plex didn't come back up. Call/text {admin_name} and let them know Plex won't restart.
+notify_admin: true

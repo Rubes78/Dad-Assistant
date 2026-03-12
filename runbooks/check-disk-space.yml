@@ -1,0 +1,13 @@
+name: check-disk-space
+description: Investigate disk space usage and show what's taking up room
+steps:
+  - type: check
+    command: df -h --output=target,size,used,avail,pcent / /Media 2>/dev/null || df -h
+    description: Check disk space on main partitions
+  - type: check
+    command: du -sh /Media/* 2>/dev/null | sort -rh | head -10
+    description: Show largest directories in /Media
+    on_fail: continue
+  - type: report
+    message: Here's where your disk space is going. If you need to free space, ask me to check what Maintainerr has queued for cleanup, or call/text {admin_name} if it looks critical.
+notify_admin: false

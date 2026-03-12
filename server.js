@@ -6,20 +6,22 @@ const crypto     = require('crypto');
 const rateLimit  = require('express-rate-limit');
 const basicAuth  = require('express-basic-auth');
 
-const { TOOL_DEFINITIONS, executeTool } = require('./tools');
+const config = require('./config');
+const { TOOL_DEFINITIONS, executeTool, runSshCommand, sshAvailable } = require('./tools');
+const audit = require('./audit');
+const healthcheck = require('./healthcheck');
+const backup = require('./backup');
+const setupRouter = require('./setup');
+const onboardRouter = require('./onboard');
 
 // ── Startup validation ─────────────────────────────────────────────────────────
-const REQUIRED_ENV = ['ANTHROPIC_API_KEY'];
-const OPTIONAL_ENV = ['RADARR_URL', 'SONARR_URL', 'PLEX_URL', 'OVERSEERR_URL', 'QB_URL', 'GLANCES_URL'];
-
-const missing = REQUIRED_ENV.filter(k => !process.env[k]);
-if (missing.length) {
-  console.error(`ERROR: Missing required environment variables: ${missing.join(', ')}`);
-  console.error('Copy .env.example to .env and fill in your values.');
-  process.exit(1);
+if (!config.isConfigured()) {
+  console.warn('WARN: No API key configured. Setup wizard will be shown at startup.');
+  console.warn('Visit the web UI to complete initial setup.');
 }
 
-const unconfigured = OPTIONAL_ENV.filter(k => !process.env[k]);
+const OPTIONAL_ENV = ['RADARR_URL', 'SONARR_URL', 'PLEX_URL', 'OVERSEERR_URL', 'QB_URL', 'GLANCES_URL'];
+const unconfigured = OPTIONAL_ENV.filter(k => !config.get(k));
 if (unconfigured.length) {
   console.warn(`WARN: Optional services not configured: ${unconfigured.join(', ')}`);
 }
@@ -32,7 +34,7 @@ if (process.env.AUTH_USER && process.env.AUTH_PASS) {
   app.use(basicAuth({
     users: { [process.env.AUTH_USER]: process.env.AUTH_PASS },
     challenge: true,
-    realm: 'Dad Assistant',
+    realm: 'Fatharr',
   }));
   console.log(`Basic auth enabled for user: ${process.env.AUTH_USER}`);
 }
@@ -47,13 +49,63 @@ app.use('/api/', rateLimit({
 }));
 
 app.use(express.json());
+
+// Setup wizard routes (always available, even before config)
+app.use('/api/setup', setupRouter);
+app.use('/api/onboard', onboardRouter);
+
+// Serve setup wizard and onboarding pages
+app.get('/setup', (req, res) => res.sendFile(path.join(__dirname, 'public', 'setup.html')));
+app.get('/onboard', (req, res) => res.sendFile(path.join(__dirname, 'public', 'onboard.html')));
+
+// Redirect to setup wizard if not configured, or to onboarding if not onboarded
+app.use((req, res, next) => {
+  const staticPaths = ['/setup', '/onboard', '/api/setup', '/api/onboard'];
+  const isStatic = staticPaths.some(p => req.path === p || req.path.startsWith(p + '/'));
+  const isAsset = req.path.endsWith('.css') || req.path.endsWith('.js') || req.path.endsWith('.ico');
+  if (isStatic || isAsset) return next();
+
+  if (!config.isConfigured()) {
+    return res.redirect('/setup');
+  }
+
+  const saved = config.getSaved();
+  if (!saved._onboarded) {
+    return res.redirect('/onboard');
+  }
+
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL  = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
+const client = new Anthropic({ apiKey: config.get('ANTHROPIC_API_KEY', '') });
+const DEFAULT_MODEL = process.env.CLAUDE_MODEL || 'claude-sonnet-4-6';
+const ALLOWED_MODELS = ['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6'];
 
 const MAX_HISTORY    = 40;
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
+const MAX_TOOL_RESULT_CHARS = 30000; // ~8k tokens — prevents blowing context
+
+function truncateToolResult(str) {
+  if (str.length <= MAX_TOOL_RESULT_CHARS) return str;
+  // Try to parse as JSON array and truncate items
+  try {
+    const parsed = JSON.parse(str);
+    if (Array.isArray(parsed)) {
+      const truncated = parsed.slice(0, 20);
+      return JSON.stringify({
+        items: truncated,
+        _truncated: true,
+        _totalCount: parsed.length,
+        _showing: truncated.length,
+        _note: `Response too large (${parsed.length} items). Showing first 20. Use more specific queries (e.g. filters, smaller page sizes) to narrow results.`,
+      });
+    }
+  } catch {}
+  // Fallback: hard truncate with notice
+  return str.slice(0, MAX_TOOL_RESULT_CHARS) + '\n\n[TRUNCATED — response was ' + str.length + ' chars. Use more specific queries to narrow results.]';
+}
 
 // ── Session persistence ────────────────────────────────────────────────────────
 const DATA_DIR     = '/app/data';
@@ -139,14 +191,16 @@ const META_RESPONSE = `I have the full server reference loaded and live tool acc
 - **See recent Plex additions** — query the Plex library
 - **Check pending requests** — query Overseerr
 - **Run host commands** — docker ps, logs, system stats
+- **Run pre-approved fixes** — restart services, check common issues
 - **Answer any how-to** — full service docs are loaded
 
 What do you need?`;
 
 // ── Routes ─────────────────────────────────────────────────────────────────────
 app.post('/api/chat', async (req, res) => {
-  const { message, sessionId } = req.body;
+  const { message, sessionId, model: requestedModel } = req.body;
   if (!message?.trim()) return res.status(400).json({ error: 'No message provided' });
+  const model = ALLOWED_MODELS.includes(requestedModel) ? requestedModel : DEFAULT_MODEL;
 
   if (META_PATTERNS.some(p => p.test(message))) {
     const sid = sessionId || crypto.randomUUID();
@@ -177,13 +231,27 @@ app.post('/api/chat', async (req, res) => {
 
   try {
     for (let round = 0; round < 10; round++) {
-      const response = await client.messages.create({
-        model:      MODEL,
-        max_tokens: 2048,
-        system:     loadSystemPrompt(),
-        messages:   workingMessages,
-        tools:      TOOL_DEFINITIONS,
-      });
+      let response;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          response = await client.messages.create({
+            model:      model,
+            max_tokens: 2048,
+            system:     loadSystemPrompt(),
+            messages:   workingMessages,
+            tools:      TOOL_DEFINITIONS,
+          });
+          break;
+        } catch (apiErr) {
+          if (apiErr.status === 429 && attempt < 2) {
+            const wait = (attempt + 1) * 15;
+            send({ status: `Rate limited — waiting ${wait}s...` });
+            await new Promise(r => setTimeout(r, wait * 1000));
+            continue;
+          }
+          throw apiErr;
+        }
+      }
 
       const textContent = response.content
         .filter(b => b.type === 'text')
@@ -200,14 +268,20 @@ app.post('/api/chat', async (req, res) => {
       const toolResults = [];
 
       for (const block of response.content.filter(b => b.type === 'tool_use')) {
-        const label = block.name === 'api'
-          ? `${block.input.service}${block.input.endpoint}`
-          : block.input.command?.slice(0, 60) + (block.input.command?.length > 60 ? '…' : '');
-        send({ status: `${block.name === 'api' ? '⚡' : '$'} ${label}` });
+        let label, icon;
+        if (block.name === 'api') {
+          icon = '⚡'; label = `${block.input.service}${block.input.endpoint}`;
+        } else if (block.name === 'runbook') {
+          icon = '🔧'; label = block.input.name;
+        } else {
+          icon = '$'; label = block.input.command?.slice(0, 60) + (block.input.command?.length > 60 ? '…' : '');
+        }
+        send({ status: `${icon} ${label}` });
 
         console.log(`TOOL ${block.name}:`, JSON.stringify(block.input));
         const result = await executeTool(block.name, block.input);
-        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) });
+        const resultStr = truncateToolResult(JSON.stringify(result));
+        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: resultStr });
       }
 
       workingMessages.push({ role: 'user', content: toolResults });
@@ -219,8 +293,11 @@ app.post('/api/chat', async (req, res) => {
     }
     send({ done: true });
   } catch (err) {
-    console.error('API error:', err.message);
-    send({ error: 'Something went wrong. Please try again.' });
+    console.error('API error:', err.status, err.message);
+    const msg = err.status === 429
+      ? 'Rate limited — please wait a minute and try again.'
+      : 'Something went wrong. Please try again.';
+    send({ error: msg });
   }
 
   res.end();
@@ -235,8 +312,27 @@ app.post('/api/reset', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Audit log endpoint ──────────────────────────────────────────────────────
+app.get('/api/audit', (req, res) => {
+  const limit = parseInt(req.query.limit, 10) || 100;
+  res.json(audit.readRecent(limit));
+});
+
 // Health check endpoint (used by Docker HEALTHCHECK)
 app.get('/health', (req, res) => res.json({ ok: true }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Dad assistant running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Fatharr running on port ${PORT}`);
+
+  // Start scheduled health checks (after a brief delay for SSH to be ready)
+  if (sshAvailable) {
+    setTimeout(() => {
+      healthcheck.start(runSshCommand);
+      // Schedule backup cleanup daily
+      setInterval(async () => {
+        try { await backup.cleanupOldBackups(runSshCommand); } catch {}
+      }, 24 * 60 * 60 * 1000);
+    }, 10000);
+  }
+});

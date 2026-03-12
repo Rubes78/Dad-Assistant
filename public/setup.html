@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fatharr — Setup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1a1a2e;
+      color: #e8e8f0;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    header {
+      background: #16213e;
+      width: 100%;
+      padding: 16px 20px;
+      text-align: center;
+      border-bottom: 1px solid #2a2a4a;
+    }
+    header h1 { font-size: 1.4rem; color: #a78bfa; }
+    header p { color: #7070a0; margin-top: 4px; font-size: 0.9rem; }
+
+    main {
+      max-width: 700px;
+      width: 100%;
+      padding: 24px 16px 60px;
+    }
+
+    .step {
+      background: #16213e;
+      border: 1px solid #2a2a4a;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .step h2 {
+      font-size: 1.1rem;
+      color: #a78bfa;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .step h2 .num {
+      background: #4c1d95;
+      color: #ddd6fe;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      flex-shrink: 0;
+    }
+    .step p { color: #9090b0; font-size: 0.9rem; margin-bottom: 12px; line-height: 1.5; }
+
+    label {
+      display: block;
+      color: #b0b0d0;
+      font-size: 0.85rem;
+      margin-bottom: 4px;
+      margin-top: 12px;
+    }
+    label:first-of-type { margin-top: 0; }
+
+    input[type="text"], input[type="password"], input[type="url"] {
+      width: 100%;
+      background: #0f172a;
+      border: 1px solid #2a3a50;
+      border-radius: 8px;
+      color: #e8e8f0;
+      font-size: 0.95rem;
+      padding: 8px 12px;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+    input:focus { border-color: #a78bfa; }
+    input::placeholder { color: #4a4a70; }
+
+    .row { display: flex; gap: 12px; }
+    .row > * { flex: 1; }
+
+    button {
+      background: #7c3aed;
+      border: none;
+      border-radius: 8px;
+      color: white;
+      padding: 10px 20px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-family: inherit;
+      transition: background 0.2s;
+      margin-top: 12px;
+    }
+    button:hover { background: #6d28d9; }
+    button:disabled { background: #3a2a5a; cursor: not-allowed; }
+    button.secondary {
+      background: #1e293b;
+      border: 1px solid #3a3a5c;
+      color: #b0b0d0;
+    }
+    button.secondary:hover { border-color: #a78bfa; color: #a78bfa; }
+
+    .status {
+      margin-top: 8px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      display: none;
+    }
+    .status.ok { display: block; background: #0d2a1a; border: 1px solid #1a4a30; color: #6ee7b7; }
+    .status.err { display: block; background: #2a0d0d; border: 1px solid #4a1a1a; color: #f87171; }
+    .status.info { display: block; background: #0d1a2a; border: 1px solid #1a304a; color: #93c5fd; }
+
+    .ssh-pubkey {
+      background: #0f172a;
+      border: 1px solid #2a3a50;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-family: monospace;
+      font-size: 0.8rem;
+      word-break: break-all;
+      color: #6ee7b7;
+      margin-top: 8px;
+      display: none;
+      line-height: 1.5;
+    }
+
+    .service-group {
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 14px;
+      margin-top: 12px;
+      background: #0f172a;
+    }
+    .service-group h3 {
+      font-size: 0.95rem;
+      color: #c4b5fd;
+      margin-bottom: 8px;
+    }
+    .service-group .test-result {
+      font-size: 0.85rem;
+      margin-top: 4px;
+    }
+
+    .collapsible {
+      cursor: pointer;
+      user-select: none;
+    }
+    .collapsible::after {
+      content: ' +';
+      color: #6060a0;
+    }
+    .collapsible.open::after {
+      content: ' −';
+    }
+    .collapsible-content {
+      display: none;
+    }
+    .collapsible-content.open {
+      display: block;
+    }
+
+    #save-all {
+      width: 100%;
+      padding: 14px;
+      font-size: 1.1rem;
+      margin-top: 24px;
+    }
+
+    .hint {
+      color: #6060a0;
+      font-size: 0.8rem;
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Fatharr Setup</h1>
+  <p>Configure your AI server assistant</p>
+</header>
+
+<main>
+  <!-- Step 1: API Key -->
+  <div class="step">
+    <h2><span class="num">1</span> Anthropic API Key</h2>
+    <p>Required. Get one from <a href="https://console.anthropic.com" target="_blank" style="color:#93c5fd">console.anthropic.com</a>.</p>
+    <label for="api-key">API Key</label>
+    <input type="password" id="api-key" placeholder="sk-ant-..." />
+    <label for="model">Model (optional)</label>
+    <input type="text" id="model" placeholder="claude-sonnet-4-6" />
+  </div>
+
+  <!-- Step 2: Admin Info -->
+  <div class="step">
+    <h2><span class="num">2</span> Admin Info</h2>
+    <p>Who should users contact when the assistant can't help? This name appears in escalation messages.</p>
+    <div class="row">
+      <div>
+        <label for="admin-name">Admin Name</label>
+        <input type="text" id="admin-name" placeholder="Daniel" />
+      </div>
+      <div>
+        <label for="admin-contact">Phone / Contact (optional)</label>
+        <input type="text" id="admin-contact" placeholder="555-123-4567" />
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3: SSH -->
+  <div class="step">
+    <h2><span class="num">3</span> Host Shell Access (optional)</h2>
+    <p>Let Fatharr run commands on your server via SSH. It uses a dedicated key pair — no passwords sent anywhere.</p>
+
+    <div class="row">
+      <div>
+        <label for="ssh-host">SSH Host</label>
+        <input type="text" id="ssh-host" placeholder="host.docker.internal" />
+      </div>
+      <div>
+        <label for="ssh-user">SSH User</label>
+        <input type="text" id="ssh-user" placeholder="assistant" />
+      </div>
+    </div>
+
+    <button id="gen-ssh-btn" class="secondary" onclick="generateSshKey()">Generate SSH Key</button>
+    <div id="ssh-status" class="status"></div>
+    <div id="ssh-pubkey" class="ssh-pubkey"></div>
+
+    <p id="ssh-instructions" style="display:none; margin-top:12px; color: #b0b0d0; font-size: 0.85rem;">
+      Copy the public key above and run this on your server:<br>
+      <code style="background:#0f172a; padding:2px 6px; border-radius:4px; font-size:0.82rem;">
+        mkdir -p ~/.ssh && echo "PUBLIC_KEY" >> ~/.ssh/authorized_keys
+      </code>
+    </p>
+
+    <button id="test-ssh-btn" class="secondary" onclick="testSsh()" style="display:none">Test SSH Connection</button>
+    <div id="ssh-test-status" class="status"></div>
+  </div>
+
+  <!-- Step 4: Services -->
+  <div class="step">
+    <h2><span class="num">4</span> Services</h2>
+    <p>Connect your media stack. All credentials stay local — never sent to Anthropic.</p>
+
+    <div class="service-group">
+      <h3>Sonarr</h3>
+      <label for="sonarr-url">URL</label>
+      <input type="url" id="sonarr-url" placeholder="http://sonarr:8989/api/v3" />
+      <label for="sonarr-key">API Key</label>
+      <input type="password" id="sonarr-key" placeholder="Found in Sonarr → Settings → General" />
+      <button class="secondary" onclick="testService('sonarr')">Test</button>
+      <span id="sonarr-test" class="test-result"></span>
+    </div>
+
+    <div class="service-group">
+      <h3>Radarr</h3>
+      <label for="radarr-url">URL</label>
+      <input type="url" id="radarr-url" placeholder="http://radarr:7878/api/v3" />
+      <label for="radarr-key">API Key</label>
+      <input type="password" id="radarr-key" placeholder="Found in Radarr → Settings → General" />
+      <button class="secondary" onclick="testService('radarr')">Test</button>
+      <span id="radarr-test" class="test-result"></span>
+    </div>
+
+    <div class="service-group">
+      <h3 class="collapsible" onclick="toggleCollapsible(this)">Seerr / Overseerr</h3>
+      <div class="collapsible-content">
+        <label for="overseerr-url">URL</label>
+        <input type="url" id="overseerr-url" placeholder="http://seerr:5055/api/v1" />
+        <label for="overseerr-key">API Key</label>
+        <input type="password" id="overseerr-key" placeholder="Found in Seerr → Settings → General" />
+        <button class="secondary" onclick="testService('overseerr')">Test</button>
+        <span id="overseerr-test" class="test-result"></span>
+      </div>
+    </div>
+
+    <div class="service-group">
+      <h3 class="collapsible" onclick="toggleCollapsible(this)">Plex / Jellyfin</h3>
+      <div class="collapsible-content">
+        <label for="plex-url">URL</label>
+        <input type="url" id="plex-url" placeholder="http://jellyfin:8096 or http://plex:32400" />
+        <label for="plex-token">Token / API Key</label>
+        <input type="password" id="plex-token" placeholder="Plex token or Jellyfin API key" />
+        <button class="secondary" onclick="testService('plex')">Test</button>
+        <span id="plex-test" class="test-result"></span>
+      </div>
+    </div>
+
+    <div class="service-group">
+      <h3 class="collapsible" onclick="toggleCollapsible(this)">SABnzbd</h3>
+      <div class="collapsible-content">
+        <label for="sabnzbd-url">URL</label>
+        <input type="url" id="sabnzbd-url" placeholder="http://sabnzbd:8081" />
+        <label for="sabnzbd-key">API Key</label>
+        <input type="password" id="sabnzbd-key" placeholder="Found in SABnzbd → Config → General" />
+        <button class="secondary" onclick="testService('sabnzbd')">Test</button>
+        <span id="sabnzbd-test" class="test-result"></span>
+      </div>
+    </div>
+
+    <div class="service-group">
+      <h3 class="collapsible" onclick="toggleCollapsible(this)">qBittorrent</h3>
+      <div class="collapsible-content">
+        <label for="qb-url">URL</label>
+        <input type="url" id="qb-url" placeholder="http://qbittorrent:8080" />
+        <div class="row">
+          <div>
+            <label for="qb-user">Username</label>
+            <input type="text" id="qb-user" placeholder="admin" />
+          </div>
+          <div>
+            <label for="qb-pass">Password</label>
+            <input type="password" id="qb-pass" placeholder="" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="service-group">
+      <h3 class="collapsible" onclick="toggleCollapsible(this)">Notifications (Apprise)</h3>
+      <div class="collapsible-content">
+        <label for="apprise-url">Apprise URL</label>
+        <input type="url" id="apprise-url" placeholder="http://apprise:8000" />
+        <label for="apprise-urls">Notification Targets</label>
+        <input type="text" id="apprise-urls" placeholder="ntfy://server:8082/fatharr or pover://user@token" />
+        <p class="hint">See <a href="https://github.com/caronc/apprise/wiki" target="_blank" style="color:#93c5fd">Apprise docs</a> for all supported services (Pushover, Telegram, Discord, ntfy, etc.)</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 5: Auth -->
+  <div class="step">
+    <h2><span class="num">5</span> UI Password (optional)</h2>
+    <p>Protect the Fatharr web interface with a login prompt.</p>
+    <div class="row">
+      <div>
+        <label for="auth-user">Username</label>
+        <input type="text" id="auth-user" placeholder="Leave blank to disable" />
+      </div>
+      <div>
+        <label for="auth-pass">Password</label>
+        <input type="password" id="auth-pass" placeholder="" />
+      </div>
+    </div>
+  </div>
+
+  <button id="save-all" onclick="saveAll()">Save & Launch Fatharr</button>
+  <div id="save-status" class="status"></div>
+</main>
+
+<script>
+  // Field ID → config key mapping
+  const FIELDS = {
+    'api-key':       'ANTHROPIC_API_KEY',
+    'model':         'CLAUDE_MODEL',
+    'admin-name':    'ADMIN_NAME',
+    'admin-contact': 'ADMIN_CONTACT',
+    'ssh-host':      'SSH_HOST',
+    'ssh-user':      'SSH_USER',
+    'sonarr-url':    'SONARR_URL',
+    'sonarr-key':    'SONARR_API_KEY',
+    'radarr-url':    'RADARR_URL',
+    'radarr-key':    'RADARR_API_KEY',
+    'overseerr-url': 'OVERSEERR_URL',
+    'overseerr-key': 'OVERSEERR_API_KEY',
+    'plex-url':      'PLEX_URL',
+    'plex-token':    'PLEX_TOKEN',
+    'sabnzbd-url':   'SABNZBD_URL',
+    'sabnzbd-key':   'SABNZBD_API_KEY',
+    'qb-url':        'QB_URL',
+    'qb-user':       'QB_USER',
+    'qb-pass':       'QB_PASS',
+    'apprise-url':   'APPRISE_URL',
+    'apprise-urls':  'APPRISE_URLS',
+    'auth-user':     'AUTH_USER',
+    'auth-pass':     'AUTH_PASS',
+  };
+
+  // Load existing config on page load
+  window.addEventListener('DOMContentLoaded', async () => {
+    try {
+      const res = await fetch('/api/setup/status');
+      const data = await res.json();
+      if (data.config) {
+        for (const [fieldId, configKey] of Object.entries(FIELDS)) {
+          const el = document.getElementById(fieldId);
+          if (el && data.config[configKey]) {
+            el.value = data.config[configKey];
+          }
+        }
+      }
+      if (data.sshKeyExists) {
+        document.getElementById('test-ssh-btn').style.display = '';
+      }
+    } catch {}
+  });
+
+  function toggleCollapsible(el) {
+    el.classList.toggle('open');
+    el.nextElementSibling.classList.toggle('open');
+  }
+
+  function setStatus(id, type, message) {
+    const el = document.getElementById(id);
+    el.className = `status ${type}`;
+    el.textContent = message;
+    el.style.display = 'block';
+  }
+
+  async function generateSshKey() {
+    const btn = document.getElementById('gen-ssh-btn');
+    btn.disabled = true;
+    btn.textContent = 'Generating...';
+
+    try {
+      const res = await fetch('/api/setup/generate-ssh-key', { method: 'POST' });
+      const data = await res.json();
+
+      if (data.ok) {
+        setStatus('ssh-status', 'ok', data.existed ? 'SSH key already exists.' : 'SSH key generated!');
+        const pubKeyEl = document.getElementById('ssh-pubkey');
+        pubKeyEl.textContent = data.publicKey;
+        pubKeyEl.style.display = 'block';
+
+        const instrEl = document.getElementById('ssh-instructions');
+        instrEl.innerHTML = instrEl.innerHTML.replace('PUBLIC_KEY', data.publicKey);
+        instrEl.style.display = 'block';
+
+        document.getElementById('test-ssh-btn').style.display = '';
+      } else {
+        setStatus('ssh-status', 'err', data.error);
+      }
+    } catch (err) {
+      setStatus('ssh-status', 'err', err.message);
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Generate SSH Key';
+  }
+
+  async function testSsh() {
+    const host = document.getElementById('ssh-host').value || undefined;
+    const user = document.getElementById('ssh-user').value || undefined;
+
+    setStatus('ssh-test-status', 'info', 'Testing connection...');
+
+    try {
+      const res = await fetch('/api/setup/test-ssh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host, user }),
+      });
+      const data = await res.json();
+      setStatus('ssh-test-status', data.ok ? 'ok' : 'err',
+        data.ok ? `Connected! Host: ${data.output}` : data.error);
+    } catch (err) {
+      setStatus('ssh-test-status', 'err', err.message);
+    }
+  }
+
+  async function testService(name) {
+    const urlEl = document.getElementById(`${name}-url`);
+    const keyEl = document.getElementById(`${name}-key`) || document.getElementById(`${name}-token`);
+    const resultEl = document.getElementById(`${name}-test`);
+
+    if (!urlEl?.value) {
+      resultEl.textContent = 'Enter a URL first';
+      resultEl.style.color = '#f87171';
+      return;
+    }
+
+    resultEl.textContent = 'Testing...';
+    resultEl.style.color = '#93c5fd';
+
+    // Determine auth type from service name
+    const authTypes = {
+      sonarr: { authType: 'header', authKey: 'X-Api-Key' },
+      radarr: { authType: 'header', authKey: 'X-Api-Key' },
+      overseerr: { authType: 'header', authKey: 'X-Api-Key' },
+      plex: { authType: 'param', authKey: 'X-Plex-Token' },
+      sabnzbd: { authType: 'param', authKey: 'apikey' },
+    };
+
+    try {
+      const res = await fetch('/api/setup/test-service', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: urlEl.value,
+          apiKey: keyEl?.value || '',
+          ...authTypes[name],
+        }),
+      });
+      const data = await res.json();
+      resultEl.textContent = data.ok ? 'Connected!' : data.error || `HTTP ${data.status}`;
+      resultEl.style.color = data.ok ? '#6ee7b7' : '#f87171';
+    } catch (err) {
+      resultEl.textContent = err.message;
+      resultEl.style.color = '#f87171';
+    }
+  }
+
+  async function saveAll() {
+    const btn = document.getElementById('save-all');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    const settings = {};
+    for (const [fieldId, configKey] of Object.entries(FIELDS)) {
+      const el = document.getElementById(fieldId);
+      if (el && el.value) {
+        settings[configKey] = el.value;
+      }
+    }
+
+    if (!settings.ANTHROPIC_API_KEY) {
+      setStatus('save-status', 'err', 'API key is required.');
+      btn.disabled = false;
+      btn.textContent = 'Save & Launch Fatharr';
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/setup/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings }),
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        setStatus('save-status', 'ok', 'Configuration saved! Redirecting to chat...');
+        setTimeout(() => window.location.href = '/onboard', 1500);
+      } else {
+        setStatus('save-status', 'err', data.error);
+      }
+    } catch (err) {
+      setStatus('save-status', 'err', err.message);
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Save & Launch Fatharr';
+  }
+</script>
+
+</body>
+</html>

@@ -1,15 +1,31 @@
 services:
-  dad-assistant:
+  fatharr:
     build: .
-    container_name: dad-assistant
+    container_name: fatharr
     restart: unless-stopped
     ports:
       - "${PORT:-3456}:3000"
     env_file:
       - .env
     volumes:
-      - ./CLAUDE.md:/app/CLAUDE.md:ro       # customize this to describe your server
-      - ./ssh_key:/app/ssh_key:ro            # optional: remove if you don't want host shell access
-      - ./data:/app/data                     # session persistence
+      - ./data:/app/data                     # persistent storage (sessions, audit, config, CLAUDE.md, runbooks, ssh key)
+      # Optional overrides — uncomment to mount custom files directly:
+      # - ./CLAUDE.md:/app/CLAUDE.md:ro      # overrides the data volume copy
+      # - ./ssh_key:/app/ssh_key:ro          # alternative to generating via setup wizard
+      # - ./runbooks:/app/runbooks:ro        # overrides the data volume copy
     extra_hosts:
       - "host.docker.internal:host-gateway"  # lets container reach the host without hardcoding IP
+    depends_on:
+      apprise:
+        condition: service_started
+        required: false
+
+  apprise:
+    image: caronc/apprise:latest
+    container_name: apprise
+    restart: unless-stopped
+    ports:
+      - "${APPRISE_PORT:-8000}:8000"
+    # Uncomment and configure to use a persistent Apprise config:
+    # volumes:
+    #   - ./apprise-config.yml:/config/apprise.yml

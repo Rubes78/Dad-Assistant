@@ -1,0 +1,9 @@
+name: restart-container
+description: Restart any stopped or unhealthy container by name
+steps:
+  - type: check
+    command: docker ps -a --format '{{.Names}} {{.Status}}'
+    description: List all containers and their status
+  - type: report
+    message: Here are all your containers and their current status. If one is down, let me know which one to restart.
+notify_admin: false

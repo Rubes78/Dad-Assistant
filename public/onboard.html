@@ -3,10 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Fatharr</title>
+  <title>Fatharr — Server Onboarding</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       background: #1a1a2e;
@@ -25,7 +24,6 @@
       border-bottom: 1px solid #2a2a4a;
       flex-shrink: 0;
     }
-
     header h1 {
       font-size: 1.2rem;
       font-weight: 600;
@@ -34,66 +32,45 @@
       align-items: center;
       gap: 10px;
     }
-
     header h1::before { content: '✦'; font-size: 1rem; }
 
-    .header-buttons {
+    .header-right {
       display: flex;
-      gap: 8px;
       align-items: center;
+      gap: 12px;
     }
 
-    #reset-btn, #settings-btn {
+    .step-indicator {
+      color: #7070a0;
+      font-size: 0.85rem;
+    }
+
+    #finish-btn {
+      background: #059669;
+      border: none;
+      color: white;
+      padding: 8px 20px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: all 0.2s;
+      display: none;
+    }
+    #finish-btn:hover { background: #047857; }
+    #finish-btn.visible { display: inline-block; }
+
+    #skip-btn {
       background: none;
       border: 1px solid #3a3a5c;
-      color: #9090b0;
+      color: #7070a0;
       padding: 6px 14px;
       border-radius: 8px;
       cursor: pointer;
       font-size: 0.85rem;
       transition: all 0.2s;
     }
-    #reset-btn:hover, #settings-btn:hover { border-color: #a78bfa; color: #a78bfa; }
-
-    #settings-btn { padding: 6px 10px; font-size: 1rem; }
-
-    #model-select {
-      background: #0f172a;
-      border: 1px solid #3a3a5c;
-      color: #9090b0;
-      padding: 6px 10px;
-      border-radius: 8px;
-      font-size: 0.85rem;
-      cursor: pointer;
-      outline: none;
-      transition: all 0.2s;
-      font-family: inherit;
-    }
-    #model-select:hover, #model-select:focus { border-color: #a78bfa; color: #a78bfa; }
-
-    .settings-menu {
-      display: none;
-      position: absolute;
-      top: 52px;
-      right: 16px;
-      background: #1e293b;
-      border: 1px solid #2a3a50;
-      border-radius: 10px;
-      padding: 6px 0;
-      min-width: 180px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-      z-index: 100;
-    }
-    .settings-menu.open { display: block; }
-    .settings-menu a {
-      display: block;
-      padding: 10px 16px;
-      color: #c8c8e0;
-      text-decoration: none;
-      font-size: 0.9rem;
-      transition: background 0.15s;
-    }
-    .settings-menu a:hover { background: #2a3a50; color: #e8e8f0; }
+    #skip-btn:hover { border-color: #a78bfa; color: #a78bfa; }
 
     #messages {
       flex: 1;
@@ -112,7 +89,6 @@
       width: 100%;
       animation: fadeIn 0.2s ease;
     }
-
     @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
     .message.user { align-self: flex-end; flex-direction: row-reverse; }
@@ -129,7 +105,6 @@
       flex-shrink: 0;
       margin-top: 2px;
     }
-
     .message.user .avatar { background: #4c1d95; color: #ddd6fe; }
     .message.assistant .avatar { background: #1e3a5f; color: #93c5fd; }
 
@@ -142,27 +117,23 @@
       white-space: pre-wrap;
       word-break: break-word;
     }
-
     .message.user .bubble {
       background: #4c1d95;
       color: #ede9fe;
       border-bottom-right-radius: 4px;
     }
-
     .message.assistant .bubble {
       background: #1e293b;
       color: #e2e8f0;
       border-bottom-left-radius: 4px;
       border: 1px solid #2a3a50;
     }
-
     .bubble.streaming::after {
       content: '▋';
       animation: blink 0.8s step-end infinite;
       margin-left: 2px;
       opacity: 0.7;
     }
-
     @keyframes blink { 0%, 100% { opacity: 0.7; } 50% { opacity: 0; } }
 
     .bubble p { margin-bottom: 0.6em; }
@@ -177,34 +148,23 @@
       font-family: monospace;
       font-size: 0.9em;
     }
-    .bubble a.fb-link {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      background: #0d2a1a;
-      color: #6ee7b7;
-      border: 1px solid #1a4a30;
-      padding: 1px 8px;
-      border-radius: 6px;
-      text-decoration: none;
-      font-size: 0.9em;
-    }
-    .bubble a.fb-link:hover { background: #163d25; color: #a7f3d0; }
-    .bubble a {
-      color: #93c5fd;
-      text-decoration: underline;
-      text-underline-offset: 2px;
-    }
+    .bubble a { color: #93c5fd; text-decoration: underline; text-underline-offset: 2px; }
     .bubble a:hover { color: #bfdbfe; }
 
-    #welcome {
-      margin: auto;
-      text-align: center;
-      color: #6060a0;
-      padding: 40px 20px;
+    .info-banner {
+      background: #1e293b;
+      border: 1px solid #2a3a50;
+      border-left: 3px solid #a78bfa;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 8px;
+      max-width: 780px;
+      align-self: flex-start;
+      font-size: 0.9rem;
+      color: #94a3b8;
+      line-height: 1.5;
     }
-    #welcome h2 { font-size: 1.5rem; color: #9090c0; margin-bottom: 8px; }
-    #welcome p { font-size: 1rem; line-height: 1.6; }
+    .info-banner strong { color: #c4b5fd; }
 
     footer {
       background: #16213e;
@@ -212,7 +172,6 @@
       padding: 12px 16px;
       flex-shrink: 0;
     }
-
     #input-row {
       display: flex;
       gap: 10px;
@@ -220,7 +179,6 @@
       margin: 0 auto;
       align-items: flex-end;
     }
-
     #input {
       flex: 1;
       background: #0f172a;
@@ -256,7 +214,6 @@
     }
     #send-btn:hover:not(:disabled) { background: #6d28d9; }
     #send-btn:disabled { background: #3a2a5a; cursor: not-allowed; }
-
     #send-btn svg { width: 20px; height: 20px; }
 
     @media (max-width: 600px) {
@@ -267,32 +224,26 @@
 <body>
 
 <header>
-  <h1>Fatharr</h1>
-  <div class="header-buttons">
-    <select id="model-select" title="AI Model">
-      <option value="claude-haiku-4-5-20251001">Cheap</option>
-      <option value="claude-sonnet-4-6" selected>Standard</option>
-      <option value="claude-opus-4-6">Smart</option>
-    </select>
-    <button id="reset-btn">New chat</button>
-    <button id="settings-btn" title="Settings">&#9881;</button>
-  </div>
-  <div class="settings-menu" id="settings-menu">
-    <a href="/onboard">Re-run onboarding</a>
-    <a href="/setup">Setup wizard</a>
+  <h1>Server Onboarding</h1>
+  <div class="header-right">
+    <span class="step-indicator">Setup complete — now let's explore your server</span>
+    <a href="/setup" style="color:#7070a0;font-size:0.85rem;text-decoration:none;border:1px solid #3a3a5c;padding:6px 12px;border-radius:8px;transition:all 0.2s;" onmouseover="this.style.borderColor='#a78bfa';this.style.color='#a78bfa'" onmouseout="this.style.borderColor='#3a3a5c';this.style.color='#7070a0'">Setup</a>
+    <button id="skip-btn" onclick="finishOnboarding()">Skip</button>
+    <button id="finish-btn" onclick="finishOnboarding()">Finish Setup</button>
   </div>
 </header>
 
 <div id="messages">
-  <div id="welcome">
-    <h2>How can I help?</h2>
-    <p>Ask me anything — finding movies, requesting content,<br>or any tech questions you have.</p>
+  <div class="info-banner">
+    <strong>What's happening:</strong> The assistant will explore your server — checking running containers,
+    disk space, services, and more — then save what it finds to its reference document. You can chat with it,
+    answer its questions, and correct anything it gets wrong. When you're happy, click <strong>Finish</strong>.
   </div>
 </div>
 
 <footer>
   <div id="input-row">
-    <textarea id="input" rows="1" placeholder="Ask a question…"></textarea>
+    <textarea id="input" rows="1" placeholder="Answer questions, add details, or just say hi to get started…"></textarea>
     <button id="send-btn" title="Send">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <line x1="22" y1="2" x2="11" y2="13"></line>
@@ -304,37 +255,18 @@
 
 <script>
   const messagesEl = document.getElementById('messages');
-  const welcomeEl  = document.getElementById('welcome');
   const inputEl    = document.getElementById('input');
   const sendBtn    = document.getElementById('send-btn');
-  const resetBtn   = document.getElementById('reset-btn');
+  const finishBtn  = document.getElementById('finish-btn');
 
-  const settingsBtn  = document.getElementById('settings-btn');
-  const settingsMenu = document.getElementById('settings-menu');
-  const modelSelect  = document.getElementById('model-select');
-
-  // Persist model choice
-  const savedModel = localStorage.getItem('selectedModel');
-  if (savedModel) modelSelect.value = savedModel;
-  modelSelect.addEventListener('change', () => localStorage.setItem('selectedModel', modelSelect.value));
-
-  settingsBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    settingsMenu.classList.toggle('open');
-  });
-  document.addEventListener('click', () => settingsMenu.classList.remove('open'));
-
-  let sessionId = localStorage.getItem('sessionId') || null;
   let isStreaming = false;
+  let messageCount = 0;
 
-  // Auto-submit query from URL param (e.g. ?q=how+do+I+...)
+  // Auto-start: send an initial greeting to kick off the conversation
   window.addEventListener('DOMContentLoaded', () => {
-    const q = new URLSearchParams(window.location.search).get('q');
-    if (q?.trim()) {
-      inputEl.value = q.trim();
-      setTimeout(sendMessage, 200);
-      window.history.replaceState({}, '', '/');
-    }
+    setTimeout(() => {
+      sendMessage("Hi! I just finished the setup wizard. Let's get you familiar with my server.");
+    }, 500);
   });
 
   // Auto-resize textarea
@@ -343,7 +275,6 @@
     inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
   });
 
-  // Send on Enter (Shift+Enter for newline)
   inputEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -353,24 +284,7 @@
 
   sendBtn.addEventListener('click', () => { if (!isStreaming) sendMessage(); });
 
-  resetBtn.addEventListener('click', async () => {
-    if (sessionId) {
-      await fetch('/api/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId })
-      });
-      sessionId = null;
-      localStorage.removeItem('sessionId');
-    }
-    messagesEl.innerHTML = '';
-    messagesEl.appendChild(welcomeEl);
-    welcomeEl.style.display = '';
-  });
-
   function addMessage(role, text) {
-    if (welcomeEl.parentNode) welcomeEl.remove();
-
     const msg = document.createElement('div');
     msg.className = `message ${role}`;
 
@@ -391,70 +305,36 @@
   }
 
   function formatText(text) {
-    // Escape HTML first
     let out = text
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
 
-    // Convert Linux-style server paths (/Media/... /USB/...) and any UNC/SMB variants
-    // to a clickable FileBrowser link.
-    // Matches:  /Media/Movies  \\mcrubes.local\Media\Movies  smb://mcrubes.local/Media/Movies
-    const pathToFb = (serverPath) => {
-      // Normalise to forward-slash path
-      const rel = serverPath
-        .replace(/^(smb:)?[\\\/]{0,2}mcrubes\.local[\\\/]?/i, '')
-        .replace(/\\/g, '/')
-        .replace(/^\//, '');
-      // FileBrowser root is /Media — strip the Media prefix for the URL
-      const fbPath = rel.replace(/^Media(\/|$)/, '$1').replace(/^\//, '');
-      const href = `http://mcrubes.local:8080/files/${fbPath}`.replace(/\/+$/, '');
-      const label = fbPath || 'Files';
-      return `<a href="${href}" target="_blank" rel="noopener" class="fb-link">📁 ${label}</a>`;
-    };
-
-    // UNC paths: \\mcrubes.local\... or \\\\mcrubes.local\\...
-    out = out.replace(/\\{1,2}mcrubes\.local\\[^\s<"')]+/gi, (m) => pathToFb(m));
-    // SMB URLs: smb://mcrubes.local/...
-    out = out.replace(/smb:\/\/mcrubes\.local\/[^\s<"')]+/gi, (m) => pathToFb(m));
-
-    // Strip stray ** before URLs
-    out = out.replace(/\*\*(https?:\/\/)/g, '$1');
-    out = out.replace(/\*\*(mcrubes\.local)/g, '$1');
-
-    // Linkify http/https URLs FIRST — before path conversion so we don't double-process
+    // Linkify URLs
     out = out.replace(/(https?:\/\/[^\s<"'*]+)/g, (url) => {
       const clean = url.replace(/[.,;!?)]+$/, '');
       const label = clean.replace(/^https?:\/\//, '');
       return `<a href="${clean}" target="_blank" rel="noopener">${label}</a>`;
     });
 
-    // Linkify bare mcrubes.local:PORT URLs
-    out = out.replace(/(?<!["/])(mcrubes\.local:\d+(?:\/[^\s<"'*,;!?)]*)?)/g, (url) => {
-      const clean = url.replace(/[.,;!?)]+$/, '');
-      return `<a href="http://${clean}" target="_blank" rel="noopener">${clean}</a>`;
-    });
-
-    // Bare Linux paths: /Media/... or /USB/...
-    // Negative lookbehind — skip if preceded by / " = ' (i.e. already inside a URL or HTML attribute)
-    out = out.replace(/(?<![/="'])(\/(Media|USB)(\/[^\s,<`"')\\*]*)?)/g, (m) => pathToFb(m));
-
-    // Markdown: bold, inline code, line breaks — strip any leftover stray **
+    // Markdown formatting
     out = out
       .replace(/\*\*(.*?)\*\*/gs, '<strong>$1</strong>')
-      .replace(/\*\*/g, '')
       .replace(/`([^`]+)`/g, '<code>$1</code>')
       .replace(/\n/g, '<br>');
 
     return out;
   }
 
-  async function sendMessage() {
-    const text = inputEl.value.trim();
+  async function sendMessage(overrideText) {
+    const text = overrideText || inputEl.value.trim();
     if (!text) return;
 
-    inputEl.value = '';
-    inputEl.style.height = 'auto';
+    if (!overrideText) {
+      inputEl.value = '';
+      inputEl.style.height = 'auto';
+    }
+
     isStreaming = true;
     sendBtn.disabled = true;
 
@@ -473,18 +353,11 @@
     };
 
     try {
-      const res = await fetch('/api/chat', {
+      const res = await fetch('/api/onboard/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, sessionId, model: modelSelect.value })
+        body: JSON.stringify({ message: text }),
       });
-
-      // Grab session ID from header before streaming
-      const newSid = res.headers.get('X-Session-Id');
-      if (newSid) {
-        sessionId = newSid;
-        localStorage.setItem('sessionId', sessionId);
-      }
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -526,6 +399,19 @@
     sendBtn.disabled = false;
     inputEl.focus();
     messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    messageCount++;
+    // Show finish button after a few exchanges
+    if (messageCount >= 2) {
+      finishBtn.classList.add('visible');
+    }
+  }
+
+  async function finishOnboarding() {
+    try {
+      await fetch('/api/onboard/complete', { method: 'POST' });
+    } catch {}
+    window.location.href = '/';
   }
 </script>
 
